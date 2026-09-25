@@ -1,0 +1,229 @@
+# NOTE: this file is copied verbatim by cargo-generate and is never
+# processed by the template engine -- the double-brace interpolation
+# below is just's own, not a cargo-generate placeholder. Keep this file
+# project-agnostic: a prompted value written here would ship unexpanded.
+#
+# Formatted with `just --fmt --unstable`.
+
+default:
+    @just --list --unsorted
+
+cargo-check:
+    cargo check --workspace --all-targets --all-features
+    #cargo check --workspace --all-targets --no-default-features
+
+test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo test --workspace --all-targets --all-features
+    #cargo test --workspace --no-default-features
+
+    # `--all-targets` silently skips doctests, so they need their own run.
+    # But `--doc` exits 101 with "no library targets found" on a
+    # binary-only crate, so only run it when there is something to run.
+    if cargo metadata --no-deps --format-version 1 \
+         | jq -e '[.packages[].targets[] | select(.doctest)] | length > 0' > /dev/null; then
+      cargo test --workspace --doc --all-features
+    else
+      echo "No library target in this package; skipping doctests."
+    fi
+
+clippy:
+    #!/bin/sh
+    export RUSTFLAGS="-Dwarnings"
+    cargo clippy --all-targets --all-features --workspace
+    #cargo clippy --all-targets --no-default-features --workspace
+    #cargo +nightly clippy --all-targets --all-features --workspace
+
+miri:
+    cargo +nightly miri test
+
+fmt-check:
+    cargo fmt --check
+
+docs-check:
+    #!/bin/sh
+    export RUSTDOCFLAGS="-Dwarnings"
+    cargo doc --workspace --no-deps --all-features
+
+cog:
+    cog check
+
+dprint-check:
+    dprint check
+
+audit:
+    cargo audit
+
+# Everything CI runs, in the order it runs it. If this passes locally,
+# the workflows under .github/workflows/ should pass too.
+#
+# `just` takes only the LAST comment line above a recipe as its doc
+# string, which would show as a fragment in `just --list`; the explicit
+# attribute keeps the listing readable and the comment block intact.
+[doc("Run every check CI runs, in CI's order")]
+checks:
+    just cargo-check
+    just test
+    just miri
+    just clippy
+    just fmt-check
+    just docs-check
+    just dprint-check
+    just cog
+    just audit
+
+fmt:
+    cargo fmt
+    dprint fmt
+
+[doc("Release a new version: [major|minor|patch]")]
+release semver:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # 0. Validate argument
+    case "{{ semver }}" in
+      major|minor|patch) ;;
+      *) echo "Error: argument must be 'major', 'minor', or 'patch' (got '{{ semver }}')" >&2; exit 1 ;;
+    esac
+
+    # 1. Safety: working directory must be clean
+    if [ -n "$(git status --porcelain)" ]; then
+      echo "Error: Working directory is not clean. Commit or stash your changes first." >&2
+      exit 1
+    fi
+
+    # 2. Safety: must be on main
+    current_branch="$(git branch --show-current)"
+    if [ "$current_branch" != "main" ]; then
+      echo "Error: You must be on the 'main' branch to cut a release (on '$current_branch')." >&2
+      exit 1
+    fi
+
+    # 3. Safety: local main must not be behind remote
+    git fetch origin
+    if [ "$(git rev-list --count HEAD..origin/main)" -ne 0 ]; then
+      echo "Error: Your local 'main' branch is behind 'origin/main'. Please pull first." >&2
+      exit 1
+    fi
+
+    # 4. Compute the bumped version tag.
+    # Handles both git-cliff v1 (array) and v2+ (object with .releases) JSON.
+    tag="$(git cliff --unreleased --bump {{ semver }} --context \
+      | jq -r 'if type == "array" then .[0].version else .releases[0].version end')"
+
+    if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+      echo "Error: Could not determine bumped version. Are there unreleased conventional commits?" >&2
+      exit 1
+    fi
+
+    # If anything below fails before the commit, restore the three files.
+    # Uses HEAD (not the index) so cleanup works even after git-add.
+    trap 'echo "Release aborted — restoring modified files." >&2; git checkout HEAD -- Cargo.toml Cargo.lock CHANGELOG.md 2>/dev/null' ERR
+
+    # Strip a leading 'v' for Cargo (e.g. v1.2.3 → 1.2.3)
+    raw_version="${tag#v}"
+
+    # 5. Bump the version in Cargo.toml.
+    #
+    # Read the outgoing version first: step 5a needs it to find the
+    # intra-workspace dependencies pinned to it.
+    old_version="$(awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}' Cargo.toml)"
+    #
+    # Only the first top-level `version =` is rewritten, which is the one
+    # in [package]: a `version = "1.0"` inside a [dependencies] entry is
+    # indented or inline and does not match `^version`.
+    awk -v ver="$raw_version" '
+      /^version[[:space:]]*=/ && !done {
+        print "version = \"" ver "\""
+        done = 1
+        next
+      }
+      1
+    ' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
+
+    # 5a. In a workspace, the intra-workspace dependencies carry the
+    # same version as a `version = "..."` alongside their `path = "..."`,
+    # and publishing fails if it goes stale. Rewrite the version only on
+    # lines that also carry a `path =`, which is exactly those; in a
+    # single-package manifest there are none and this is a no-op.
+    sed -i "/path = /s/version = \"$old_version\"/version = \"$raw_version\"/g" Cargo.toml
+
+    # 5b. Guard: the rewrite must actually have landed. awk exits 0 whether
+    # or not it matched, so an unrecognised manifest layout would otherwise
+    # produce a tag for a version that was never written.
+    ws_ver="$(awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}' Cargo.toml)"
+    if [ "$ws_ver" != "$raw_version" ]; then
+      echo "Error: Cargo.toml version is '$ws_ver', expected '$raw_version'." >&2
+      echo "       The manifest was not rewritten as expected; nothing has been tagged." >&2
+      exit 1
+    fi
+
+    # 6. Regenerate Cargo.lock to reflect the new version
+    cargo check --quiet
+
+    # 7. Regenerate the full changelog
+    git cliff --bump {{ semver }} --output CHANGELOG.md
+
+    # 8. Stage exactly the three files modified by the release process
+    git add Cargo.toml Cargo.lock CHANGELOG.md
+
+    # 9. Commit and tag — clear the trap first: once committed, a push
+    #    failure is solved by retrying the push, not by reverting files.
+    trap - ERR
+    git commit -m "chore(release): bump to $tag"
+    git tag -a "$tag" -m "Release $tag"
+
+    # 10. Push branch and tag atomically, then publish.
+    #     `--workspace` publishes every member in dependency order, and
+    #     is correct for a single-package manifest too (a package with no
+    #     [workspace] table is its own workspace of one).
+    #     Drop the `cargo publish` line for a crate that is not published
+    #     to a registry.
+    git push --follow-tags origin main
+    cargo publish --workspace
+
+    echo "Released $tag"
+
+# ---------------------------------------------------------------------
+# Valgrind
+#
+# memcheck is the one worth gating on. helgrind is not: Rust's `mpsc` is
+# built on the lock-free `mpmc` channel, whose happens-before edges
+# helgrind cannot model, so it reports races that are not there. Use
+# helgrind to investigate, never to gate.
+#
+# `--show-leak-kinds=definite,indirect` is deliberate. The default also
+# counts "possibly lost", and libtest's own result-collection channel
+# allocates one such block that is never freed by design. Counting it
+# would make a clean run exit non-zero forever.
+# ---------------------------------------------------------------------
+
+# Memcheck every test binary in the workspace.
+valgrind:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    vg=(valgrind --tool=memcheck --leak-check=full
+        --show-leak-kinds=definite,indirect --errors-for-leak-kinds=definite,indirect
+        --track-origins=yes --error-exitcode=99 -q)
+    cargo test --workspace --no-run --message-format=json 2>/dev/null \
+      | jq -r 'select(.reason=="compiler-artifact" and .profile.test and .executable)
+               | "\(.target.name)\t\(.executable)"' \
+      | sort -u > /tmp/vg-targets.tsv
+
+    # Read from a file rather than a pipe: a `while` on the right of a pipe
+    # runs in a subshell, so an `exit 1` inside it would not fail the
+    # recipe — the failure would be silently swallowed.
+    failed=0
+    while IFS=$'\t' read -r name exe; do
+      printf '%-24s ' "$name"
+      if "${vg[@]}" "$exe" --test-threads=1 >/dev/null 2>"/tmp/vg-$name.err"; then
+        echo "clean"
+      else
+        echo "ERRORS -> /tmp/vg-$name.err"
+        failed=1
+      fi
+    done < /tmp/vg-targets.tsv
+    rm -f /tmp/vg-targets.tsv
+    exit "$failed"

@@ -1,0 +1,26 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for `dist` (https://opensource.axo.dev/cargo-dist/).
+#
+# `.github/workflows/release.yml` is NOT in this repository: it is
+# generated from this file. Run `dist init` once after generating the
+# project and commit the workflow it writes. Shipping a pre-generated
+# copy would pin you to whatever `dist` version the template was built
+# against and be overwritten on your first `dist init` anyway.
+[dist]
+cargo-dist-version = "0.32.0"
+ci = "github"
+installers = ["shell"]
+targets = [
+  "aarch64-apple-darwin",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+  "x86_64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl",
+]
+install-path = "CARGO_HOME"
+install-updater = false
+allow-dirty = ["ci"]
+auto-includes = true

@@ -1,0 +1,229 @@
+{% if project_kind == "workspace" -%}
+[workspace]
+members = ["crates/{{project-name}}", "crates/{{project-name}}-core"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "{{msrv}}"
+authors = ["{{author_name}}{% if author_email != "" %} <{{author_email}}>{% endif %}"]
+license = "{{license}}"
+readme = "README.md"
+repository = "https://github.com/{{github_username}}/{{project-name}}"
+{% assign kw_list = keywords | split: "," -%}
+keywords = [{% for k in kw_list %}"{{ k | strip }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]
+
+# The binary depends on the library by path *and* version. The path is
+# what the workspace builds against; the version is what `cargo publish`
+# records, and without it publishing is refused. `just release` bumps
+# both -- it rewrites the version on any line that also carries a
+# `path =`, which is exactly the intra-workspace dependencies.
+[workspace.dependencies]
+{{project-name}}-core = { version = "0.1.0", path = "crates/{{project-name}}-core" }
+
+# `description` and `categories` are deliberately NOT inherited: they
+# describe an individual crate, and crates.io shows them per package.
+# Each member sets its own.
+{% else -%}
+[package]
+name = "{{project-name}}"
+version = "0.1.0"
+edition = "2024"
+rust-version = "{{msrv}}"
+description = "{{description}}"
+authors = ["{{author_name}}{% if author_email != "" %} <{{author_email}}>{% endif %}"]
+license = "{{license}}"
+readme = "README.md"
+repository = "https://github.com/{{github_username}}/{{project-name}}"
+{% assign kw_list = keywords | split: "," -%}
+keywords = [{% for k in kw_list %}"{{ k | strip }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]
+{% assign cat_list = categories | split: "," -%}
+categories = [{% for c in cat_list %}"{{ c | strip }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]
+
+# Keeps the published .crate to source, docs and licences. None of the
+# excluded files do anything for someone consuming this from crates.io,
+# and a shipped rust-toolchain.toml can surprise anyone who builds from
+# an extracted .crate directory.
+exclude = [
+  "/.github",
+  "/.cargo",
+  "/cliff.toml",
+  "/cog.toml",
+  "/dist-workspace.toml",
+  "/dprint.json",
+  "/justfile",
+  "/rust-toolchain.toml",
+]
+
+[dependencies]
+
+[dev-dependencies]
+{% if project_kind != "lib" %}
+[[bin]]
+name = "{{project-name}}"
+path = "src/main.rs"
+{% endif -%}
+{% endif %}
+[profile.release]
+opt-level = 3
+lto = "fat" # fat == true
+codegen-units = 1
+# `debug = 1` would generate line tables that `strip` then deletes:
+# nothing extracts them first, so they cost build time and reach no one.
+debug = 0 # 0 | false, 1 | "line-tables-only", 2 | true
+# `"debuginfo"` and not `"symbols"`: a full strip also drops `.symtab`,
+# which turns every backtrace frame into a bare address. Revisit only if
+# symbols are archived elsewhere (a `dist` debuginfo artifact, or a crash
+# service).
+strip = "debuginfo" # "none" | false, "debuginfo", "symbols" | true
+# panic = "unwind" is the default and is deliberately not changed here.
+# `panic = "abort"` disables every Drop-based cleanup and diagnostic on
+# the panic path; opt in only if you know nothing relies on unwinding.
+{% if project_kind != "lib" %}
+[profile.dist]
+inherits = "release"
+{% if project_kind != "workspace" %}
+[package.metadata.binstall]
+pkg-url = "https://github.com/{{github_username}}/{ name }/releases/download/v{ version }/{ name }-{ target }.tar.xz"
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "txz"
+{% endif -%}
+{% endif %}
+# ---------------------------------------------------------------------
+# Lints
+#
+# Both tables are policy, not preference: CI runs `cargo clippy
+# --all-targets -- -D warnings`, so a `warn` here fails the build just as
+# a `deny` does. The difference is local: `warn` stays out of your way
+# during `cargo check`, `deny` stops the compile immediately.
+#
+# To silence one site, annotate it with `#[expect(lint, reason = "...")]`
+# -- never `#[allow]`. `clippy::allow_attributes_without_reason` is on,
+# and `#[expect]` fails the build once the reason stops being true.
+# ---------------------------------------------------------------------
+
+{% if project_kind == "workspace" %}[workspace.lints.rust]{% else %}[lints.rust]{% endif %}
+absolute_paths_not_starting_with_crate = "deny"
+ambiguous_negative_literals = "deny"
+closure_returning_async_block = "warn"
+deref_into_dyn_supertrait = "deny"
+deprecated_in_future = "deny"
+deprecated_safe_2024 = "deny"
+elided_lifetimes_in_paths = "warn"
+explicit_outlives_requirements = "warn"
+if_let_rescope = "warn"
+impl_trait_overcaptures = "warn"
+let_underscore_drop = "deny"
+macro_use_extern_crate = "deny"
+missing_copy_implementations = "warn"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+non_ascii_idents = "deny"
+single_use_lifetimes = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unreachable_pub = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unused_crate_dependencies = "deny"
+unused_import_braces = "warn"
+unused_lifetimes = "warn"
+unused_macro_rules = "warn"
+unused_qualifications = "warn"
+variant_size_differences = "warn"
+
+{% if project_kind == "workspace" %}[workspace.lints.clippy]{% else %}[lints.clippy]{% endif %}
+cargo = { level = "warn", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+restriction = { level = "warn", priority = -1 }
+
+# Three names below are newer than the edition-2024 floor of Rust 1.85:
+# `unchecked_time_subtraction` exists from 1.92, `inline_trait_bounds`
+# and `inline_modules` from 1.97. On an older toolchain they are simply
+# unknown: clippy prints `unknown lint` and carries on (exit code 0,
+# verified), and rustc ignores `clippy::` names it does not recognise
+# entirely, so `cargo check` and `cargo test` stay silent. Nothing
+# breaks below 1.97 -- you just see the warnings locally, because
+# `rust-toolchain.toml` pins clippy to this crate's MSRV. CI runs clippy
+# on stable, where all three exist.
+
+# --- panics and other silent aborts: denied outright -----------------
+# Every one of these is a way for the program to stop without returning
+# an error the caller could have handled. In a library they become the
+# caller's crash; in a binary they become an exit code and no message.
+# Handle the case, or annotate the site with `#[expect(..., reason)]`.
+# `clippy.toml` already exempts test code from most of them.
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+unreachable = "deny"
+unimplemented = "deny"
+unchecked_time_subtraction = "deny" # name exists from Rust 1.92 (see the note below)
+todo = "deny"
+string_slice = "deny"
+panic_in_result_fn = "deny"
+panic = "deny"
+exit = "deny"
+as_conversions = "deny"
+
+# The four groups above are deliberate project policy. `restriction` is
+# not designed to be enabled wholesale, so the allows below carve out
+# the lints that are wrong *for this project* rather than wrong in
+# general. Every correctness-signal lint stays enabled.
+blanket_clippy_restriction_lints = "allow" # the group-enable itself is the documented policy
+
+self_named_module_files = "allow" # house style: `foo.rs` + `foo/`, not
+# `foo/mod.rs`; the mutually exclusive
+# `mod_module_files` stays on
+inline_trait_bounds = "allow" # clippy 1.97+
+inline_modules = "allow" # clippy 1.97+; without it every `mod tests` warns
+
+# -- mutually-exclusive style pairs: one side must be allowed ----------
+pub_with_shorthand = "allow" # house style is `pub(crate)`, not `pub(in crate)`
+separated_literal_suffix = "allow" # house style is `4096_u64`; unseparated_literal_suffix stays on
+semicolon_outside_block = "allow" # house style: `unsafe { .. };` -- the inside-block pair stays on
+
+# -- portability lints: only meaningful for a no_std crate -------------
+std_instead_of_core = "allow" # drop these two allows if this crate ever
+std_instead_of_alloc = "allow" # goes `no_std`
+
+# -- consequences of having a real public API --------------------------
+# These fire once per public item and say nothing about correctness.
+missing_inline_in_public_items = "allow" # inlining across a crate boundary is LTO's job,
+# not something to hand-annotate on every item
+exhaustive_structs = "allow" # mark the types that will evolve `#[non_exhaustive]`
+exhaustive_enums = "allow" # deliberately, rather than all of them by default
+error_impl_error = "allow" # a crate's error type is named `Error`, as in
+# std::io, serde_json and essentially every other
+# crate; the lint argues against a near-universal
+# convention
+pub_use = "allow" # crate-root re-exports are the API's ergonomics
+module_name_repetitions = "allow" # `config::Config`
+
+# -- style choices this codebase makes deliberately --------------------
+implicit_return = "allow"
+min_ident_chars = "allow"
+print_stderr = "allow" # operator-facing CLI: stderr is the UI
+print_stdout = "allow" # operator-facing CLI: stdout is the UI
+question_mark_used = "allow"
+single_call_fn = "allow" # single-use helpers are the decomposition style
+absolute_paths = "allow" # a fully-qualified path at the call site is
+# sometimes clearer than an import
+missing_trait_methods = "allow" # re-implementing every defaulted method is an
+# anti-pattern, not hardening
+arbitrary_source_item_ordering = "allow" # files are ordered to be read top-to-bottom,
+# not alphabetically
+unused_trait_names = "allow" # `use Trait as _` churn without benefit
+field_scoped_visibility_modifiers = "allow" # pub(crate) fields are the internal-struct pattern
+shadow_reuse = "allow" # idiomatic rebinding (`let s = s.trim()`);
+shadow_same = "allow" # shadow_unrelated remains ENABLED
+default_numeric_fallback = "allow" # suffixing every inferred literal is noise
+non_ascii_literal = "allow" # deliberate Unicode in user-facing strings
+pattern_type_mismatch = "allow" # match ergonomics are idiomatic Rust
+single_char_lifetime_names = "allow" # 'a is idiomatic
+integer_division = "allow" # chunk/percent math is intended integer math;
+integer_division_remainder_used = "allow" # overflow is covered by arithmetic_side_effects,
+# which stays denied
+float_arithmetic = "allow" # floats appear only in human-readable display

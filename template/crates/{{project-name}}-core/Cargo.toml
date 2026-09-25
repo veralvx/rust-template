@@ -1,0 +1,25 @@
+[package]
+name = "{{project-name}}-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+keywords.workspace = true
+description = "{{description}} (library)"
+{% assign cat_list = categories | split: "," -%}
+categories = [{% for c in cat_list %}"{{ c | strip }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints]
+workspace = true
+
+# The library is consumed as a dependency, not shipped as an artifact,
+# so cargo-dist has nothing to build for it.
+[package.metadata.dist]
+dist = false

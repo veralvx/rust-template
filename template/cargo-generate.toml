@@ -1,0 +1,123 @@
+# cargo-generate configuration for the strict-Rust crate template.
+#
+# See https://cargo-generate.github.io/cargo-generate/ for the schema.
+#
+#   ignore  -> file is not copied into the generated project at all
+#   exclude -> file IS copied, but is never processed by Liquid
+#   include -> (unused; `include` and `exclude` are mutually exclusive)
+
+[template]
+cargo_generate_version = ">=0.21.0"
+
+# Every file below contains double-brace or brace-percent syntax that
+# belongs to some *other* templating language and must survive verbatim:
+#
+#   .github/workflows/*  GitHub Actions expressions. Some of them use
+#                        the `||` operator inside an interpolation,
+#                        which is not valid Liquid and would abort
+#                        generation with a parse error.
+#   cliff.toml           git-cliff's Tera templates. Its conditionals
+#                        parse as Liquid and would be *evaluated*,
+#                        silently gutting the changelog config.
+#   justfile             just's own variable interpolation, which shares
+#                        Liquid's double-brace syntax.
+#
+# None of them need a prompted value: the MSRV job reads `rust-version`
+# out of Cargo.toml at run time, and git-cliff derives the repository
+# from the git remote. Keep it that way -- anything project-specific
+# added to these files will ship with the placeholder unexpanded.
+exclude = [
+  ".github/workflows/**",
+  "cliff.toml",
+  "justfile",
+]
+
+[placeholders.description]
+type = "string"
+prompt = "Short crate description (shown on crates.io; required by clippy::cargo_common_metadata)"
+default = "A Rust crate."
+regex = '^.+$'
+
+[placeholders.project_kind]
+type = "string"
+prompt = "What should this build? (workspace = a bin + a lib crate under crates/, as separate packages)"
+choices = ["bin", "lib", "both", "workspace"]
+default = "bin"
+
+[placeholders.author_name]
+type = "string"
+prompt = "Author name (Cargo.toml `authors` and the license copyright line)"
+regex = '^\S.*$'
+
+[placeholders.author_email]
+type = "string"
+prompt = "Author email (leave empty to omit it everywhere)"
+default = ""
+regex = '^$|^[^@\s]+@[^@\s]+\.[^@\s]+$'
+
+[placeholders.github_username]
+type = "string"
+prompt = "GitHub user or org (repository URL, security advisories, badges)"
+regex = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$'
+
+[placeholders.license]
+type = "string"
+prompt = "License"
+choices = ["MIT OR Apache-2.0", "MIT", "Apache-2.0"]
+default = "MIT OR Apache-2.0"
+
+[placeholders.msrv]
+type = "string"
+prompt = "Minimum supported Rust version (1.85+ for edition 2024; 1.97 keeps clippy quiet -- see README)"
+default = "1.97"
+regex = '^1\.(8[5-9]|9[0-9]|[1-9][0-9]{2,})(\.[0-9]+)?$'
+
+[placeholders.keywords]
+type = "string"
+prompt = "crates.io keywords, comma separated (max 5, each max 20 chars, alphanumeric/-/_/+)"
+default = "rust"
+regex = '^\s*[A-Za-z0-9][A-Za-z0-9_+-]{0,19}(\s*,\s*[A-Za-z0-9][A-Za-z0-9_+-]{0,19}){0,4}\s*$'
+
+[placeholders.categories]
+type = "string"
+prompt = "crates.io category slugs, comma separated (max 5, e.g. command-line-utilities, os::linux-apis)"
+default = "development-tools"
+regex = '^\s*[a-z0-9-]+(::[a-z0-9-]+)*(\s*,\s*[a-z0-9-]+(::[a-z0-9-]+)*){0,4}\s*$'
+
+# --- conditional file selection --------------------------------------
+#
+# NOTE: `ignore` entries are literal paths relative to the template root,
+# NOT globs -- cargo-generate joins each one onto the output directory
+# and removes it (`remove_dir_all` for a directory, `remove_file` for a
+# file). A glob such as `tests/**` would resolve to a path that does not
+# exist and be skipped with a warning. `exclude` above *is* glob-based;
+# the two keys do not share matching rules.
+#
+# Ignoring also happens AFTER expansion, so every file here is still
+# rendered first: a Liquid error in a file that this section removes
+# will still abort generation.
+
+[conditional.'license == "MIT"']
+ignore = ["LICENSE-APACHE"]
+
+[conditional.'license == "Apache-2.0"']
+ignore = ["LICENSE-MIT"]
+
+# A library has no binary to ship, so cargo-dist has nothing to do.
+[conditional.'project_kind == "lib"']
+ignore = ["src/main.rs", "dist-workspace.toml", "crates"]
+
+# A binary-only crate has no public API to integration-test through.
+[conditional.'project_kind == "bin"']
+ignore = ["src/lib.rs", "tests", "crates"]
+
+[conditional.'project_kind == "both"']
+ignore = ["crates"]
+
+# The workspace keeps its sources in the member crates under `crates/`,
+# so the single-package `src/` and `tests/` at the root are dropped.
+# Removing the `crates` directory wholesale is what makes the
+# dynamically-named member directories tractable here: `ignore` takes
+# literal paths, so `crates/{{project-name}}-core` could not be named.
+[conditional.'project_kind == "workspace"']
+ignore = ["src", "tests"]
