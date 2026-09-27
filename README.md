@@ -1,4 +1,4 @@
-# rust-crate-template
+# rust-template
 
 A [`cargo-generate`](https://github.com/cargo-generate/cargo-generate) template
 for a Rust crate that starts out with the whole toolchain already wired up:
@@ -13,7 +13,7 @@ The configuration is adapted from [`veralvx/imi`](https://github.com/veralvx/imi
 
 ```sh
 cargo install cargo-generate
-cargo generate --git https://github.com/YOUR-USER/rust-crate-template template
+cargo generate --git https://github.com/veralvx/rust-template template
 ```
 
 The trailing `template` is the sub-folder that holds the template itself; the
@@ -23,13 +23,13 @@ will find it on its own if you omit the argument, but naming it is unambiguous.
 From a local checkout:
 
 ```sh
-cargo generate --path ./rust-crate-template template
+cargo generate --path ./rust-template template
 ```
 
 Everything can be answered non-interactively, which is what the smoke test does:
 
 ```sh
-cargo generate --path ./rust-crate-template template \
+cargo generate --path ./rust-template template \
   --name my-crate --silent \
   -d description="Does a thing." \
   -d project_kind=both \
