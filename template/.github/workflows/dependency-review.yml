@@ -1,0 +1,40 @@
+name: Dependency Review
+
+on:
+  pull_request:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/Dockerfile"
+      - "**/docker-compose*.yml"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# NOTE: this action needs the dependency graph, which is on by default
+# for public repositories but requires GitHub Advanced Security on a
+# private one. On a private repo without it, this job fails rather than
+# skipping -- delete the workflow or enable the feature.
+jobs:
+  dependency-review:
+    name: License & Security Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: moderate
+          # Audit your current dependency licenses with:
+          #   cargo tree --format "{p} {l}" | sort -u
+          # and add anything legitimate that is missing rather than
+          # deleting this list -- an empty allow-list allows everything.
+          allow-licenses: >
+            0BSD, Apache-2.0, BlueOak-1.0.0, BSD-2-Clause, BSD-3-Clause,
+            BSL-1.0, CC0-1.0, CC-BY-4.0, ISC, MIT, MIT-0, MPL-2.0,
+            OpenSSL, Unicode-3.0, Unicode-DFS-2016, Unlicense, Zlib
+          comment-summary-in-pr: on-failure

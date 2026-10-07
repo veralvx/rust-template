@@ -1,0 +1,5 @@
+[env]
+# `just miri` needs isolation off to touch the filesystem and clocks;
+# strict provenance turns pointer-provenance mistakes into hard errors
+# rather than silent UB.
+MIRIFLAGS = "-Zmiri-disable-isolation -Zmiri-strict-provenance"

@@ -1,0 +1,60 @@
+version: 2
+
+# Covers the cargo and github-actions ecosystems only. Two things in
+# this repository are version-pinned and are NOT updated here:
+#   - the dprint plugin URLs in dprint.json
+#   - the toolchain in rust-toolchain.toml, which tracks the MSRV
+#     deliberately and should move only when you raise `rust-version`
+updates:
+  # ─── Rust (Cargo) ───────────────────────────────────────────────
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "rust"
+    groups:
+      # Minor and patch updates are batched into a single PR.
+      # Major updates are left ungrouped for individual review.
+      rust-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
+
+  # ─── GitHub Actions ─────────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "07:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "actions"
+    groups:
+      actions-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    cooldown:
+      default-days: 3
