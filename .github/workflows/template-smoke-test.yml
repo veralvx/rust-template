@@ -67,11 +67,14 @@ jobs:
           toolchain: nightly
           components: miri
 
+      # Cargo's home only (the tools below, the registry): a cached target/
+      # restored into the destination would make cargo-generate refuse it
+      # ("Target directory already exists")
       - name: Cache Cargo (and the tools it installs)
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: smoke-${{ matrix.kind }}
-          workspaces: ${{ runner.temp }}/generated/demo
+          cache-targets: "false"
 
       - name: Install the tools
         run: >-

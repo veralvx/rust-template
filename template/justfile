@@ -28,16 +28,17 @@ test:
       echo "No library target in this package; skipping doctests."
     fi
 
-# Miri needs a nightly toolchain: rustup's `+nightly`, or under Nix (no
-# rustup) the flake's `miri` shell. MIRIFLAGS come from .cargo/config.toml.
+# Miri needs a nightly toolchain: rustup's `+nightly`, or in the flake's
+# shell -- whose cargo is no rustup proxy, even where rustup is installed --
+# the flake's `miri` shell. MIRIFLAGS come from .cargo/config.toml.
 [doc("The tests under Miri (nightly)")]
 miri:
     #!/usr/bin/env bash
     set -euo pipefail
-    if command -v rustup > /dev/null; then
-      cargo +nightly miri test --workspace --all-features --locked
-    else
+    if [ -n "${IN_NIX_SHELL:-}" ] || ! command -v rustup > /dev/null; then
       nix develop .#miri --command cargo miri test --workspace --all-features --locked
+    else
+      cargo +nightly miri test --workspace --all-features --locked
     fi
 
 # `-- -D warnings`, as CI runs it: a RUSTFLAGS=-Dwarnings would change
