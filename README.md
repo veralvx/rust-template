@@ -346,7 +346,8 @@ Also confirmed by running it, not by reading it:
   `workspace`: an unformatted file, a message cog rejects and a pushed revert
   refused, each for that reason, and a clean push accepted. The two releases
   then commit and push through them, the tag included; a release commit a hook
-  refuses restores the manifests and tags nothing.
+  refuses -- the first, too -- leaves a clean tree and no tag. A merge commit
+  passes whatever its message, as CI ignores merges.
 - The workflows pass actionlint 1.7.12 with shellcheck 0.9.0, and the justfile's
   shell recipes and the hooks pass shellcheck.
 

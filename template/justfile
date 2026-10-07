@@ -189,9 +189,11 @@ release semver:
     restore() {
       echo "Release aborted — restoring modified files." >&2
       git checkout HEAD -- Cargo.toml Cargo.lock
-      if git ls-files --error-unmatch CHANGELOG.md > /dev/null 2>&1; then
+      # HEAD's, not the index's: step 9 may have staged a new CHANGELOG.md
+      if git cat-file -e HEAD:CHANGELOG.md 2> /dev/null; then
         git checkout HEAD -- CHANGELOG.md
       else
+        git rm --quiet --cached --ignore-unmatch CHANGELOG.md
         rm -f CHANGELOG.md
       fi
     }

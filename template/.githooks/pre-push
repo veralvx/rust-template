@@ -1,9 +1,14 @@
 #!/bin/sh
-# Every pushed commit's history, as CI checks it: `git revert` and
+# The history of every pushed ref, as CI checks main's: `git revert` and
 # `git cherry-pick` commit without running commit-msg, and their default
 # messages (`Revert "..."`) are not Conventional Commits.
 set -eu
-while read -r _local_ref local_oid _remote_ref _remote_oid; do
+while read -r line; do
+  # <local ref> <local oid> <remote ref> <remote oid>, read from the right:
+  # the local ref is as typed, and may hold spaces (`main@{1 day ago}`)
+  line="${line% *}"
+  line="${line% *}"
+  local_oid="${line##* }"
   case "$local_oid" in
     # `..<commit>`: all its history, as `cog check` reads HEAD's
     *[!0]*) cog check "..$(git rev-parse "$local_oid^{commit}")" ;;

@@ -1,4 +1,6 @@
 #!/bin/sh
-# The message, as CI's Conventional Commits check will read it.
+# The message, as CI's Conventional Commits check will read it -- a merge
+# commit's excepted, as CI excepts it (cog.toml's ignore_merge_commits).
 set -eu
+if git rev-parse -q --verify MERGE_HEAD > /dev/null; then exit 0; fi
 cog verify --file "$1"
