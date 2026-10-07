@@ -115,11 +115,6 @@ jobs:
   generate:
     name: Generate (${{ matrix.kind }})
     runs-on: ubuntu-latest
-    env:
-      GIT_AUTHOR_NAME: smoke
-      GIT_AUTHOR_EMAIL: smoke@example.com
-      GIT_COMMITTER_NAME: smoke
-      GIT_COMMITTER_EMAIL: smoke@example.com
     strategy:
       fail-fast: false
       matrix:
@@ -170,6 +165,9 @@ jobs:
             -d "license=MIT OR Apache-2.0" -d msrv=1.97 -d keywords=cli,parser \
             -d categories=command-line-utilities
           cd "$RUNNER_TEMP/generated/demo"
+          # in git's config, not GIT_AUTHOR_NAME and the like: `cog verify` reads it there
+          git config user.name smoke
+          git config user.email smoke@example.com
           git add .
           git commit --quiet -m "chore: initial commit from template"
 
@@ -188,8 +186,15 @@ jobs:
           printf '\nconst  UNFORMATTED: u8 = 0;\n' >> "$file"
           refused git commit --quiet -am "style: unformatted"
           git checkout -- "$file"
-          # commit-msg: a message that is no Conventional Commit
+          # commit-msg: a message that is no Conventional Commit; and, with the identity in
+          # the environment only, a refusal that says so rather than cog's panic
           refused git commit --quiet --allow-empty -m "not conventional"
+          git config --unset user.email
+          refused env GIT_AUTHOR_EMAIL=smoke@example.com GIT_COMMITTER_EMAIL=smoke@example.com \
+            git commit --quiet --allow-empty -m "feat: no email in git's config" 2> refusal
+          grep -q "^commit-msg: cog verify needs git's user.name and user.email" refusal
+          rm refusal
+          git config user.email smoke@example.com
           # pre-push: a revert, which git commits without running commit-msg
           git init --quiet --bare "$RUNNER_TEMP/hooks.git"
           echo probe > probe.txt
@@ -275,7 +280,9 @@ jobs:
             -d author_email=jane@example.com -d github_username=jane \
             -d "license=MIT OR Apache-2.0" -d msrv=1.97 -d keywords=cli,parser \
             -d categories=command-line-utilities
-          # a git flake sees tracked files only
+          # nixpkgs builds cargo-generate without its `git` feature (buildNoDefaultFeatures),
+          # so no repository is made; and a git flake sees tracked files only
+          git -C "$RUNNER_TEMP/generated/demo" init --quiet
           git -C "$RUNNER_TEMP/generated/demo" add .
 
       - name: nix flake check (every system evaluated, this one built)

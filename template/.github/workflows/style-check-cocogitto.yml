@@ -36,6 +36,8 @@ jobs:
           command: check
           args: --ignore-merge-commits ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
 
+      # after the action: `cog verify` panics without git's user.name and user.email, which
+      # the action sets globally (its git-user inputs) on every run
       - name: Check PR Title
         if: github.event_name == 'pull_request'
         env:

@@ -20,6 +20,10 @@ The trailing `template` is the sub-folder that holds the template itself; the
 repository root holds this README and the template's own CI. `cargo-generate`
 will find it on its own if you omit the argument, but naming it is unambiguous.
 
+nixpkgs' `cargo-generate` (`nix run nixpkgs#cargo-generate`) is built without
+its `git` feature, so it creates no repository: run `git init` in the new
+project yourself.
+
 From a local checkout:
 
 ```sh

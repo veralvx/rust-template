@@ -3,4 +3,10 @@
 # commit's excepted, as CI excepts it (cog.toml's ignore_merge_commits).
 set -eu
 if git rev-parse -q --verify MERGE_HEAD > /dev/null; then exit 0; fi
+# `cog verify` reads the author from git's config -- GIT_AUTHOR_NAME and the like are not
+# config -- and panics without it (cocogitto 7.0.0)
+if ! git config user.name > /dev/null || ! git config user.email > /dev/null; then
+  echo "commit-msg: cog verify needs git's user.name and user.email (git config)" >&2
+  exit 1
+fi
 cog verify --file "$1"
