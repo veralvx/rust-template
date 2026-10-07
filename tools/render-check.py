@@ -122,7 +122,7 @@ def main() -> int:
 
     # 1b. `ignore` entries are literal paths, not globs: cargo-generate
     #     joins each onto the output dir and removes it. A glob would
-    #     resolve to a non-existent path and be skipped with a warning,
+    #     resolve to a non-existent path and be skipped silently,
     #     shipping a file that was meant to be dropped.
     print("== conditional ignore paths")
     for expr, section in conditionals.items():
@@ -257,10 +257,9 @@ def main() -> int:
         rendered_count = 0
         for path in files:
             rel = str(path.relative_to(TEMPLATE))
-            # Deliberately NOT skipping `ignored` files: cargo-generate
-            # renders the whole tree and deletes the ignored paths
-            # afterwards, so a Liquid error in a file this case discards
-            # would still abort generation. Render everything.
+            # Deliberately NOT skipping `ignored` files, though cargo-generate
+            # (0.25) removes them before rendering: a file every case renders
+            # is a file whose Liquid every case checks, stricter than needed.
             raw = path.read_text(encoding="utf-8", errors="replace")
             if matches_any(rel, excluded):
                 out = raw
@@ -335,13 +334,16 @@ def main() -> int:
                 fail(f"{label}: expected 2 member crates, found {len(members)}")
             for member in members:
                 mf = member / "Cargo.toml"
-                m = tomllib.loads(
+                whole = tomllib.loads(
                     env.from_string(normalise(mf.read_text())).render(**vars_)
-                )["package"]
+                )
+                m = whole["package"]
                 if not m.get("description") or not m.get("categories"):
                     fail(f"{label}: {member.name} must set its own description and categories")
-                if m.get("lints") is not None:
-                    fail(f"{label}: {member.name} should inherit lints, not redefine them")
+                # `[lints]` is a top-level table: a member without
+                # `workspace = true` silently opts out of the whole policy
+                if whole.get("lints") != {"workspace": True}:
+                    fail(f"{label}: {member.name} must inherit the lints: [lints] workspace = true")
         else:
             src = {p.name for p in (TEMPLATE / "src").iterdir()}
             for name, wanted in (

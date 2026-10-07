@@ -5,7 +5,7 @@ Thank you for considering contributing to `{{project-name}}`!
 ## Prerequisites
 
 To build and test `{{project-name}}` locally you will need either **Nix** --
-`nix develop` gives every tool below at the versions `flake.nix` pins, the
+`nix develop` gives every tool below at the versions `flake.lock` pins, the
 toolchain read from `rust-toolchain.toml`, and `just miri` its nightly shell --
 or, installed yourself:
 
@@ -35,7 +35,7 @@ The nightly Miri toolchain and cargo-audit are easy to miss: without them
 2. Clone your fork locally:
 
 ```sh
-git clone https://github.com/{{github_username}}/{{project-name}} && cd {{project-name}}
+git clone https://github.com/<you>/{{project-name}} && cd {{project-name}}
 ```
 
 ## Guidelines
@@ -84,9 +84,10 @@ just checks
 
 That runs nine recipes in order: `cargo check`, the test suite, Miri,
 `cargo clippy` with warnings denied, `cargo fmt --check`, a docs build with
-warnings denied, `dprint check`, `cog check`, and `cargo audit`. If `just checks`
-passes on your machine, your code should pass CI — the workflows under
-`.github/workflows/` run the same set.
+warnings denied, `dprint check`, `cog check`, and `cargo audit` -- the set the
+workflows under `.github/workflows/` run, on the toolchain `rust-toolchain.toml`
+pins. CI also runs clippy and rustdoc on the latest stable, where a lint newer
+than the MSRV can still fire, and an MSRV and a Nix job.
 
 ## Creating a Pull Request
 
@@ -97,3 +98,20 @@ passes on your machine, your code should pass CI — the workflows under
 3. In your PR description, outline the problem you are solving. Link the
    relevant issue (e.g. `Fixes #123`), if any.
 4. Wait for a maintainer to review your code.
+
+## Releasing (maintainers)
+
+`just release <major|minor|patch>`, from a clean `main` up to date with
+`origin`. It runs `just checks`, bumps the version, writes `CHANGELOG.md` with
+git-cliff, commits, tags `v<version>` (the first release `v0.1.0`), pushes the
+commit and the tag together and runs `cargo publish --workspace`. Before the
+first one:
+
+- `cargo login` with a crates.io token -- otherwise the tag is pushed and
+  nothing is published; run `cargo publish --workspace` again once logged in.
+- The commits since the last tag must hold a change a user meets (`feat`,
+  `fix`, `perf`, `build`...): `chore`, `ci` and `style` alone make no release.
+- The release pushes to `main` directly: with "Require a pull request before
+  merging" on, the maintainer cutting it needs the rule's bypass. A refused
+  push leaves the commit and the tag local -- push them again with
+  `git push --atomic origin main v<version>` once allowed.

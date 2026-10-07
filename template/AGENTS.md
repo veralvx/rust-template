@@ -18,7 +18,7 @@ exactly like a denial does.
 
 `restriction` is not designed to be enabled wholesale. That is deliberate here:
 the group is enabled and the lints that are wrong *for this project* are turned
-off one at a time, each with a written reason, in the `[lints.clippy]` table.
+off one at a time, each with a written reason, in the {% if project_kind == "workspace" %}`[workspace.lints.clippy]`{% else %}`[lints.clippy]`{% endif %} table.
 The alternative — enabling lints one at a time — silently opts out of every lint
 written after the list was made.
 
@@ -87,7 +87,8 @@ build(deps): bump serde from 1.0.200 to 1.0.201
 
 ## 5. Before you claim a change is done
 
-Run `just checks`. It is the same nine steps CI runs. Reporting "done" on a
+Run `just checks`. It is the nine checks CI runs, on the pinned toolchain (CI
+runs clippy and rustdoc on the latest stable too). Reporting "done" on a
 change that has not passed it is the one thing that wastes the most time here.
 
 If a check fails for reasons unrelated to your change, say so explicitly rather

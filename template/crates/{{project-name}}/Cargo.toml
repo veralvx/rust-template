@@ -23,8 +23,3 @@ workspace = true
 [[bin]]
 name = "{{project-name}}"
 path = "src/main.rs"
-
-[package.metadata.binstall]
-pkg-url = "https://github.com/{{github_username}}/{ name }/releases/download/v{ version }/{ name }-{ target }.tar.xz"
-bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
-pkg-fmt = "txz"

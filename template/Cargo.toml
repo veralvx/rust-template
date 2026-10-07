@@ -45,7 +45,7 @@ repository = "https://github.com/{{github_username}}/{{project-name}}"
 rust-version = "{{msrv}}"
 description = "{{description}}"
 
-# Keeps the published .crate to source, docs and licences. None of the
+# Keeps the repository's tooling out of the published .crate. None of the
 # excluded files do anything for someone consuming this from crates.io,
 # and a shipped rust-toolchain.toml can surprise anyone who builds from
 # an extracted .crate directory.
@@ -78,7 +78,7 @@ lto = "fat" # fat == true
 codegen-units = 1
 # `debug = 1` would generate line tables that `strip` then deletes:
 # nothing extracts them first, so they cost build time and reach no one.
-debug = 0 # 0 | false, 1 | "line-tables-only", 2 | true
+debug = 0 # 0 | false | "none", "line-tables-only", 1 | "limited", 2 | true | "full"
 # `"debuginfo"` and not `"symbols"`: a full strip also drops `.symtab`,
 # which turns every backtrace frame into a bare address. Revisit only if
 # symbols are archived elsewhere (a `dist` debuginfo artifact, or a crash
@@ -90,20 +90,14 @@ strip = "debuginfo" # "none" | false, "debuginfo", "symbols" | true
 {% if project_kind != "lib" %}
 [profile.dist]
 inherits = "release"
-{% if project_kind != "workspace" %}
-[package.metadata.binstall]
-pkg-url = "https://github.com/{{github_username}}/{ name }/releases/download/v{ version }/{ name }-{ target }.tar.xz"
-bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
-pkg-fmt = "txz"
-{% endif -%}
 {% endif %}
 # ---------------------------------------------------------------------
 # Lints
 #
-# Both tables are policy, not preference: CI runs `cargo clippy
-# --all-targets -- -D warnings`, so a `warn` here fails the build just as
-# a `deny` does. The difference is local: `warn` stays out of your way
-# during `cargo check`, `deny` stops the compile immediately.
+# Both tables are policy, not preference: `just clippy` and CI run `cargo
+# clippy --all-targets -- -D warnings`, so a `warn` here fails the build
+# just as a `deny` does. The difference shows only in a bare `cargo
+# clippy` (a warning or an error); `cargo check` runs no clippy lint.
 #
 # To silence one site, annotate it with `#[expect(lint, reason = "...")]`
 # -- never `#[allow]`. `clippy::allow_attributes_without_reason` is on,
@@ -159,7 +153,8 @@ restriction = { level = "warn", priority = -1 }
 # an error the caller could have handled. In a library they become the
 # caller's crash; in a binary they become an exit code and no message.
 # Handle the case, or annotate the site with `#[expect(..., reason)]`.
-# `clippy.toml` already exempts test code from most of them.
+# `clippy.toml` exempts test code from four of them: `unwrap_used`,
+# `expect_used`, `indexing_slicing` and `panic`.
 unwrap_used = "deny"
 expect_used = "deny"
 indexing_slicing = "deny"
@@ -209,11 +204,11 @@ pub_use = "allow" # crate-root re-exports are the API's ergonomics
 module_name_repetitions = "allow" # `config::Config`
 
 # -- style choices this codebase makes deliberately --------------------
-implicit_return = "allow"
-min_ident_chars = "allow"
+implicit_return = "allow" # the tail expression is idiomatic Rust
+min_ident_chars = "allow" # `i`, `n`, `f` in short scopes read best
 print_stderr = "allow" # operator-facing CLI: stderr is the UI
 print_stdout = "allow" # operator-facing CLI: stdout is the UI
-question_mark_used = "allow"
+question_mark_used = "allow" # `?` is how errors propagate here
 single_call_fn = "allow" # single-use helpers are the decomposition style
 absolute_paths = "allow" # a fully-qualified path at the call site is
 # sometimes clearer than an import

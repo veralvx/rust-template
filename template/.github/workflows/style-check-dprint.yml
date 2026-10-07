@@ -15,13 +15,9 @@ on:
       - "**/*.toml"
       - ".github/workflows/style-check-dprint.yml"
       - "dprint.json"
+  # every pull request, whatever it touches: a path-filtered workflow never
+  # reports, and a required check that never reports blocks the merge
   pull_request:
-    paths:
-      - "**/*.md"
-      - "**/*.markdown"
-      - "**/*.toml"
-      - ".github/workflows/style-check-dprint.yml"
-      - "dprint.json"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

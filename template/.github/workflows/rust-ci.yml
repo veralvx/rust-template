@@ -23,16 +23,9 @@ on:
       - "rustfmt.toml"
       - "rust-toolchain.toml"
       - ".github/workflows/rust-ci.yml"
+  # every pull request, whatever it touches: a path-filtered workflow never
+  # reports, and a required check that never reports blocks the merge
   pull_request:
-    paths:
-      - "**/*.rs"
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - ".cargo/config.toml"
-      - "clippy.toml"
-      - "rustfmt.toml"
-      - "rust-toolchain.toml"
-      - ".github/workflows/rust-ci.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -102,9 +95,12 @@ jobs:
           # run. But `--doc` exits 101 with "no library targets found" on a
           # binary-only crate, so ask cargo whether any doctests exist
           # before running them. (jq is preinstalled on GitHub runners.)
+          # Counted outside the `if`, so a failing `cargo metadata` stops
+          # the job instead of reading as "no doctests".
           set -euo pipefail
-          if cargo metadata --no-deps --format-version 1 \
-               | jq -e '[.packages[].targets[] | select(.doctest)] | length > 0' > /dev/null; then
+          doctests="$(cargo metadata --no-deps --format-version 1 --locked \
+            | jq '[.packages[].targets[] | select(.doctest)] | length')"
+          if [ "$doctests" -gt 0 ]; then
             cargo test --workspace --doc --locked ${{ matrix.features }}
           else
             echo "No library target in this package; skipping doctests."
@@ -113,6 +109,10 @@ jobs:
   miri:
     name: Miri (${{ matrix.features }})
     runs-on: ubuntu-latest
+    env:
+      # for every step: rust-cache's `rustc -vV` too, which would otherwise
+      # install the pinned MSRV toolchain only to name the cache
+      RUSTUP_TOOLCHAIN: nightly
     strategy:
       fail-fast: false
       matrix:
@@ -186,8 +186,6 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "MSRV is $version"
 
-      # rust-toolchain.toml names the same version, so rustup's choice and
-      # this install agree; a mismatch between the two fails here
       - name: Install MSRV toolchain
         uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
@@ -198,6 +196,8 @@ jobs:
         with:
           key: msrv-${{ steps.msrv.outputs.version }}
 
+      # rust-toolchain.toml must name the same version, so rustup's choice
+      # and the install above agree: a mismatch fails here
       - name: Check + test on MSRV
         env:
           MSRV: ${{ steps.msrv.outputs.version }}

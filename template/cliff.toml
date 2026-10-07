@@ -62,7 +62,7 @@ commit_parsers = [
   { message = ".*", group = "<!-- 9 -->Other" },
 ]
 sort_commits = "oldest"
-# tags as cog and the binstall URLs name them: `v0.1.0`, the first release included
+# tags as cog names them, `v0.1.0`, the first release included
 tag_pattern = "^v[0-9]"
 
 [bump]

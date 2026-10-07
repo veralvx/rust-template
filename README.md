@@ -61,11 +61,11 @@ template that validates none.
 | Prompt            | Default             | Goes into                                                          |
 | ----------------- | ------------------- | ------------------------------------------------------------------ |
 | *(project name)*  | —                   | package name, `[[bin]]`, repository URL, docs                       |
-| `description`     | `A Rust crate.`     | `package.description`, crate-level rustdoc, README                  |
+| `description`     | `A Rust crate.`     | `package.description`, README, the flake's `meta`                   |
 | `project_kind`    | `bin`               | `bin`, `lib`, `both`, or `workspace` — see below                    |
 | `author_name`     | —                   | `package.authors`, license copyright line                           |
-| `author_email`    | *(empty)*           | `package.authors`, `cog.toml`, code of conduct — omitted if blank   |
-| `github_username` | —                   | repository URL, security advisory link, binstall URL                |
+| `author_email`    | *(empty)*           | `package.authors`, code of conduct — omitted if blank               |
+| `github_username` | —                   | repository URL, security advisory link                              |
 | `license`         | `MIT OR Apache-2.0` | `package.license`, which `LICENSE-*` files are kept, README         |
 | `msrv`            | `1.97`              | `package.rust-version`, `rust-toolchain.toml`, CI's MSRV job, Nix   |
 | `keywords`        | `rust`              | `package.keywords` (comma-separated, max 5)                         |
@@ -96,7 +96,7 @@ because crates.io shows them per package.
 Nothing else changes: every CI command and every `just` recipe already passes
 `--workspace`, so the same nine checks cover one package or five.
 
-Two things worth knowing if you pick it:
+Three things worth knowing if you pick it:
 
 - `cargo publish --workspace` publishes members in dependency order. `just
   release` bumps the root version *and* the version on any dependency line that
@@ -146,7 +146,7 @@ dprint.json           Markdown + TOML formatting, plugins at their latest
 cliff.toml            git-cliff changelog generation, grouped by commit type
 cog.toml              cocogitto / Conventional Commits
 dist-workspace.toml   cargo-dist config (binaries only)
-justfile              `just checks` = the nine steps CI runs; `just release`
+justfile              `just checks` = the nine checks CI runs; `just release`
 flake.nix             Nix: the pinned toolchain and every tool, the package,
                       CI's checks as derivations
 .cargo/config.toml    Miri flags
@@ -165,9 +165,10 @@ LICENSE-MIT / LICENSE-APACHE (a workspace member carries its own copies)
 `[lints.rust]` carries 27 lints. `[lints.clippy]` enables four groups —
 `pedantic` and `nursery` at **deny**, `restriction` and `cargo` at warn — and
 then turns off, one at a time and with a written reason, the lints that are
-wrong for a normal crate. CI runs `cargo clippy --all-targets -- -D warnings`,
-so warn and deny both fail the build; the difference is only whether `cargo
-check` stops immediately.
+wrong for a normal crate. `just clippy` and CI run `cargo clippy --all-targets
+-- -D warnings`, so warn and deny both fail the build; the difference shows only
+in a bare `cargo clippy` (a warning or an error) -- `cargo check` runs no clippy
+lint at all.
 
 On top of the groups, the operations that end a process without returning an
 error are denied by name: `unwrap_used`, `expect_used`, `panic`,
@@ -222,8 +223,9 @@ heading links its GitHub compare view, from Cargo.toml's `repository`.
 [rust-overlay](https://github.com/oxalica/rust-overlay), so the MSRV is written
 once) and every tool `just checks` and `just release` call; `just miri` enters
 the flake's nightly `miri` shell itself. `nix flake check` builds clippy,
-rustfmt, rustdoc and the tests offline in the sandbox; `nix build` the binary.
-The systems are nixpkgs-unstable's: x86_64 and aarch64 Linux, Apple silicon. The
+rustfmt, rustdoc and the tests offline in the sandbox; `nix build` the binary
+(every layout but `lib`). The systems are those the flake's `nixos-unstable`
+input supports: x86_64 and aarch64 Linux, Apple silicon. The
 template ships no `flake.lock` -- it would age in the template; the first `nix`
 command writes one, and the generated README says to commit it.
 
@@ -235,8 +237,9 @@ version this template was built against.
 ## Developing this template
 
 ```sh
-python3 -m pip install python-liquid pyyaml
-python3 tools/render-check.py
+python3 -m venv .venv    # Python 3.11+ (tomllib); a venv, as distributions lock pip
+.venv/bin/pip install python-liquid==2.3.4 pyyaml==6.0.3
+.venv/bin/python tools/render-check.py
 ```
 
 `tools/render-check.py` renders every templated file for all 24 combinations of
@@ -259,7 +262,7 @@ layout. It also guards config invariants that otherwise fail silently:
   to be dropped.
 - **The workspace members' licence copies equal the root's**, byte for byte.
 
-That third check guards the sharpest edge in this template. These files are
+The second check guards the sharpest edge in this template. These files are
 copied **verbatim** and never processed by Liquid:
 
 - `.github/workflows/**` — GitHub Actions expressions. Some use `||` inside an
@@ -274,13 +277,15 @@ instead, the way the MSRV job derives its toolchain version and `just changelog`
 the repository.
 
 `.github/workflows/template-smoke-test.yml` does the real end-to-end check,
-weekly and on every push and pull request: render-check; then, for each
-`project_kind`, a project generated with actual `cargo-generate` put through its
-own `just` recipes (clippy on the pinned MSRV and on stable, Miri on nightly,
-`cargo audit`, `cog check`), `dprint check` with the pinned plugins, `just
-changelog` and `cargo package`; and its flake through `nix flake check` and `nix
-build`. A template whose output does not compile is worse than no template, and
-this is the only thing that proves it does.
+weekly, on pushes to `main` and on every pull request: render-check; all 24
+answer combinations through the actual `cargo-generate` (each manifest parsed,
+each licence file where its choice puts it, `dprint check`); for each
+`project_kind`, a generated project put through its own `just` recipes (clippy
+on the pinned MSRV and on stable, Miri on nightly, `cargo audit`, `cog check`),
+`dprint check`, `just changelog` and `cargo package`, and for the workspace two
+`just release`s against a bare remote; and each flake through `nix flake check`
+and `nix build`. A template whose output does not compile is worse than no
+template, and this is the only thing that proves it does.
 
 ## Verification status
 
@@ -326,6 +331,12 @@ Also confirmed by running it, not by reading it:
   description or author, a sixth keyword and an uppercase category.
 - `cargo`'s `[env]` reaches a target runner, which is how Miri's runner gets
   `.cargo/config.toml`'s `MIRIFLAGS`.
+- `just test` fails, rather than skipping the doctests, when `jq` is missing;
+  `just valgrind` (valgrind 3.22) runs clean on `both`, and a target it fails
+  keeps its own report.
+- The smoke test's combinations and release steps, run locally (Miri stubbed):
+  the 24 generations with their licence files, and the two releases with their
+  tags, version and compare link, the empty third refused.
 - The workflows pass actionlint 1.7.12 with shellcheck 0.9.0, and the justfile's
   shell recipes pass shellcheck.
 

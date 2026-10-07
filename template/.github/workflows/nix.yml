@@ -20,17 +20,9 @@ on:
       - "flake.nix"
       - "flake.lock"
       - ".github/workflows/nix.yml"
+  # every pull request, whatever it touches: a path-filtered workflow never
+  # reports, and a required check that never reports blocks the merge
   pull_request:
-    paths:
-      - "**/*.rs"
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - "clippy.toml"
-      - "rustfmt.toml"
-      - "rust-toolchain.toml"
-      - "flake.nix"
-      - "flake.lock"
-      - ".github/workflows/nix.yml"
   workflow_dispatch:
 
 concurrency:

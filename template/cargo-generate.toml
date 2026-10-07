@@ -7,7 +7,10 @@
 #   include -> (unused; `include` and `exclude` are mutually exclusive)
 
 [template]
-cargo_generate_version = ">=0.21.0"
+# 0.25 is the version this template is verified with: `ignore` below names
+# paths as the template spells them, which relies on its removing them before
+# rendering (see the note there)
+cargo_generate_version = ">=0.25.0"
 
 # Every file below contains double-brace or brace-percent syntax that
 # belongs to some *other* templating language and must survive verbatim:
@@ -56,11 +59,12 @@ regex = '^[^\s"\\][^"\\]*$'
 type = "string"
 prompt = "Author email (leave empty to omit it everywhere)"
 default = ""
-regex = '^$|^[^@\s]+@[^@\s]+\.[^@\s]+$'
+# it lands in TOML strings: a `"` or `\` would end or escape them
+regex = '^$|^[^@\s"\\]+@[^@\s"\\]+\.[^@\s"\\]+$'
 
 [placeholders.github_username]
 type = "string"
-prompt = "GitHub user or org (repository URL, security advisories, badges)"
+prompt = "GitHub user or org (repository URL, security advisories)"
 regex = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$'
 
 [placeholders.license]
@@ -93,7 +97,7 @@ regex = '^\s*[a-z0-9-]+(::[a-z0-9-]+)*(\s*,\s*[a-z0-9-]+(::[a-z0-9-]+)*){0,4}\s*
 # NOT globs -- cargo-generate joins each one onto its working copy of the
 # template and removes it (`remove_dir_all` for a directory, `remove_file`
 # for a file). A glob such as `tests/**` would resolve to a path that does
-# not exist and be skipped with a warning. `exclude` above *is*
+# not exist and be skipped silently. `exclude` above *is*
 # glob-based; the two keys do not share matching rules.
 #
 # The removal happens BEFORE expansion, on the template's own file names

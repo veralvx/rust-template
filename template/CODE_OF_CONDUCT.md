@@ -10,4 +10,6 @@ This repository is for technical development.
   removed.
 
 Report conduct concerns to the maintainers{% if author_email != "" %} at
-{{author_email}}{% endif %}.
+{{author_email}}{% else %}, or through GitHub's
+[report content](https://docs.github.com/en/communities/maintaining-your-safety-on-github/reporting-abuse-or-spam)
+feature{% endif %}.

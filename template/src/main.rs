@@ -8,7 +8,8 @@
 {% else -%}
 //! The lint policy in `Cargo.toml` denies the operations that can end
 //! the process without returning an error: `a + b`, `v[i]`,
-//! `.unwrap()`, `.expect()`, `panic!` and `as` will not compile here.
+//! `.unwrap()`, `.expect()`, `panic!` and `as` compile, but clippy
+//! rejects them here (`just clippy`, and CI).
 //! Each has a total counterpart -- [`u64::checked_add`], [`slice::get`],
 //! `ok_or`/`?`, [`u64::try_from`] -- and reaching for it is the point.
 //!

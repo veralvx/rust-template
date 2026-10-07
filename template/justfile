@@ -21,8 +21,11 @@ test:
     # `--all-targets` silently skips doctests, so they need their own run.
     # But `--doc` exits 101 with "no library targets found" on a
     # binary-only crate, so only run it when there is something to run.
-    if cargo metadata --no-deps --format-version 1 \
-         | jq -e '[.packages[].targets[] | select(.doctest)] | length > 0' > /dev/null; then
+    # Counted first, outside any `if`: a missing jq or a failing `cargo
+    # metadata` stops the recipe instead of reading as "no doctests".
+    doctests="$(cargo metadata --no-deps --format-version 1 --locked \
+      | jq '[.packages[].targets[] | select(.doctest)] | length')"
+    if [ "$doctests" -gt 0 ]; then
       cargo test --workspace --doc --all-features --locked
     else
       echo "No library target in this package; skipping doctests."
@@ -62,13 +65,15 @@ dprint-check:
 audit:
     cargo audit
 
-# Everything CI runs, in the order it runs it. If this passes locally,
-# the workflows under .github/workflows/ should pass too.
+# The checks CI's workflows run, one after another, on the toolchain
+# rust-toolchain.toml pins (the MSRV). CI runs clippy and rustdoc on the
+# latest stable too, where a lint newer than the MSRV can still fire, and
+# adds the MSRV and Nix jobs.
 #
 # `just` takes only the LAST comment line above a recipe as its doc
 # string, which would show as a fragment in `just --list`; the explicit
 # attribute keeps the listing readable and the comment block intact.
-[doc("Run every check CI runs, in CI's order")]
+[doc("Run the checks CI runs (on the pinned toolchain)")]
 checks:
     just cargo-check
     just test
@@ -267,7 +272,8 @@ valgrind:
         --track-origins=yes --error-exitcode=99 -q)
     # a private directory: the reports outlive the run when it fails
     logs="$(mktemp -d)"
-    cargo test --workspace --no-run --message-format=json 2>/dev/null \
+    # cargo's diagnostics stay on stderr: a build that fails says why
+    cargo test --workspace --all-features --locked --no-run --message-format=json \
       | jq -r 'select(.reason=="compiler-artifact" and .profile.test and .executable)
                | "\(.target.name)\t\(.executable)"' \
       | sort -u > "$logs/targets.tsv"
@@ -277,11 +283,14 @@ valgrind:
     # recipe — the failure would be silently swallowed.
     failed=0
     while IFS=$'\t' read -r name exe; do
+      # by the executable's own name: a crate's lib and bin tests share
+      # their target name, and one log would overwrite the other's
+      log="$logs/$(basename "$exe").err"
       printf '%-24s ' "$name"
-      if "${vg[@]}" "$exe" --test-threads=1 >/dev/null 2>"$logs/$name.err"; then
+      if "${vg[@]}" "$exe" --test-threads=1 >/dev/null 2>"$log"; then
         echo "clean"
       else
-        echo "ERRORS -> $logs/$name.err"
+        echo "ERRORS -> $log"
         failed=1
       fi
     done < "$logs/targets.tsv"

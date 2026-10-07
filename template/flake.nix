@@ -41,24 +41,30 @@
 {%- endif %}
       pname = cargoPackage.name;
 
-      # what a build reads: nothing else reaches the store, so editing the docs or CI
-      # rebuilds nothing
+      # what a build reads: the repository less its tooling and docs, so editing CI or the
+      # docs rebuilds nothing, while a new build.rs, examples/ or benches/ is in without a word
       src = lib.fileset.toSource {
         root = ./.;
-        fileset = lib.fileset.unions [
-          ./Cargo.toml
-          ./Cargo.lock
-          ./clippy.toml
-          ./rustfmt.toml
-{%- if project_kind == "workspace" %}
-          ./crates
-{%- else %}
-          ./src
-{%- endif %}
-{%- if project_kind == "lib" or project_kind == "both" %}
-          ./tests
-{%- endif %}
-        ];
+        fileset = lib.fileset.difference ./. (
+          lib.fileset.unions (
+            map lib.fileset.maybeMissing [
+              ./.github
+              ./.gitignore
+              ./AGENTS.md
+              ./CHANGELOG.md
+              ./CODE_OF_CONDUCT.md
+              ./CONTRIBUTING.md
+              ./SECURITY.md
+              ./cliff.toml
+              ./cog.toml
+              ./dist-workspace.toml
+              ./dprint.json
+              ./flake.lock
+              ./flake.nix
+              ./justfile
+            ]
+          )
+        );
       };
 
       perSystem =

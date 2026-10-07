@@ -1,4 +1,4 @@
-//! {{description}}
+//! The `{{project-name}}` library.
 //!
 //! # Working in this crate
 //!
@@ -6,11 +6,11 @@
 //! one way that shows up immediately: the operations that can end the
 //! process without returning an error are denied, not warned about.
 //! `a + b`, `v[i]`, `&s[a..b]`, `.unwrap()`, `.expect()`, `panic!` and
-//! `as` will not compile here.
+//! `as` compile, but clippy rejects them here (`just clippy`, and CI).
 //!
 //! Each has a total counterpart -- [`u64::checked_add`],
 //! [`slice::get`], [`str::get`], `ok_or`/`?`, and [`u64::try_from`] --
-//! and reaching for it is the point: the compiler is asking what should
+//! and reaching for it is the point: the lint is asking what should
 //! happen in the case you had not yet considered.
 //!
 //! When the answer really is "this cannot happen", say so at the site
