@@ -78,7 +78,7 @@ lto = "fat" # fat == true
 codegen-units = 1
 # `debug = 1` would generate line tables that `strip` then deletes:
 # nothing extracts them first, so they cost build time and reach no one.
-debug = 0 # 0 | false | "none", "line-tables-only", 1 | "limited", 2 | true | "full"
+debug = 0 # 0 | false | "none", "line-directives-only", "line-tables-only", 1 | "limited", 2 | true | "full"
 # `"debuginfo"` and not `"symbols"`: a full strip also drops `.symtab`,
 # which turns every backtrace frame into a bare address. Revisit only if
 # symbols are archived elsewhere (a `dist` debuginfo artifact, or a crash

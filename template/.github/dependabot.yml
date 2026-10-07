@@ -1,11 +1,13 @@
 version: 2
 
-# Covers the cargo and github-actions ecosystems only. Four things in
-# this repository are version-pinned and are NOT updated here:
+# Covers the cargo and github-actions ecosystems only. These are
+# version-pinned in this repository and are NOT updated here:
 #   - the dprint plugin URLs in dprint.json: `just dprint-update`
 #   - flake.lock's nixpkgs and rust-overlay: `nix flake update`
+{%- if project_kind != "lib" %}
 #   - `cargo-dist-version` in dist-workspace.toml: `dist init` (keep it
 #     equal to the dist `nix develop` has)
+{%- endif %}
 #   - the toolchain in rust-toolchain.toml, which tracks the MSRV
 #     deliberately and should move only when you raise `rust-version`
 updates:

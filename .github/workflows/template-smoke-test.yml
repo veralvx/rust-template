@@ -66,8 +66,10 @@ jobs:
           key: smoke-combinations
           cache-targets: "false"
 
-      - name: Install cargo-generate
-        run: cargo install --locked cargo-generate@0.25.0
+      - name: Install cargo-generate and dprint
+        run: |
+          cargo install --locked cargo-generate@0.25.0
+          npm install --global dprint@0.61.0
 
       - name: Generate and check each
         run: |
@@ -103,7 +105,7 @@ jobs:
                     fi
                   done
                 done
-                (cd "$dir" && npx --yes dprint@0.61.0 check)
+                (cd "$dir" && dprint check)
               done
             done
           done
@@ -145,6 +147,11 @@ jobs:
           cargo +stable install --locked cargo-generate@0.25.0 just@1.58.0
           cocogitto@7.0.0 git-cliff@2.14.2 cargo-audit@0.22.2
 
+      # on PATH, for `just dprint-check` (and so `just checks`, which `just
+      # release` runs) as much as for the step below
+      - name: Install dprint
+        run: npm install --global dprint@0.61.0
+
       - name: Generate
         run: |
           set -euo pipefail
@@ -176,7 +183,7 @@ jobs:
 
       - name: dprint, with the plugins dprint.json pins
         working-directory: ${{ runner.temp }}/generated/demo
-        run: npx --yes dprint@0.61.0 check
+        run: dprint check
 
       - name: The changelog, and the package crates.io would get
         working-directory: ${{ runner.temp }}/generated/demo

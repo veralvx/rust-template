@@ -15,7 +15,7 @@
 //!
 //! When the answer really is "this cannot happen", say so at the site
 //! with `#[expect(lint, reason = "...")]` rather than `#[allow]`. An
-//! `expect` that stops being true becomes a compile error.
+//! `expect` that stops being true fails clippy (`just clippy`, CI).
 {% endif -%}
 {% if project_kind == "both" %}
 use {{crate_name}}::saturating_total;

@@ -292,7 +292,7 @@ template, and this is the only thing that proves it does.
 The template is driven end to end with the real tooling, not reasoned about.
 With **cargo-generate 0.25.0**, **rustc / clippy 1.97.0** (the default MSRV),
 **just 1.58.0**, **cocogitto 7.0.0**, **git-cliff 2.13.1**, **cargo-audit
-0.22.2** and **dprint 0.54.0 with the markdown 0.26.0 and TOML 0.9.0 plugins**,
+0.22.2** and **dprint 0.61.0 with the markdown 0.26.0 and TOML 0.9.0 plugins**,
 all 24 combinations -- `bin`, `lib`, `both` and `workspace`, × the three
 licences, × email present and absent -- generate and, after their first commit,
 pass:
@@ -334,9 +334,10 @@ Also confirmed by running it, not by reading it:
 - `just test` fails, rather than skipping the doctests, when `jq` is missing;
   `just valgrind` (valgrind 3.22) runs clean on `both`, and a target it fails
   keeps its own report.
-- The smoke test's combinations and release steps, run locally (Miri stubbed):
-  the 24 generations with their licence files, and the two releases with their
-  tags, version and compare link, the empty third refused.
+- The smoke test's combinations and release steps, run locally as written
+  (`just miri` standing in as a native `cargo test`): the 24 generations with
+  their licence files and `dprint check`, and the two releases with their tags,
+  version and compare link, the empty third refused.
 - The workflows pass actionlint 1.7.12 with shellcheck 0.9.0, and the justfile's
   shell recipes pass shellcheck.
 
@@ -347,8 +348,9 @@ What this does **not** cover -- the smoke-test workflow is what does:
 - **Miri, and clippy on a newer stable.** No nightly or newer toolchain could be
   installed here, so `just miri` never ran, and lints added after 1.97 (stable
   is 1.99 at the time of writing) may fire on the starter code.
-- **The MSRV floor's toolchain** (1.90), and **dprint's current CLI** (0.61.0)
-  -- 0.54.0 ran the current plugins.
+- **The MSRV floor's toolchain** (1.90), and dprint's plugins as fetched from
+  `plugins.dprint.dev`: this environment cannot reach it, so the same versions
+  ran from their npm packages.
 - **cargo-dist** (`dist init`) and **GitHub Actions itself**: the workflows are
   linted, not run.
 

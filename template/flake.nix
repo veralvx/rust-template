@@ -41,8 +41,9 @@
 {%- endif %}
       pname = cargoPackage.name;
 
-      # what a build reads: the repository less its tooling and docs, so editing CI or the
-      # docs rebuilds nothing, while a new build.rs, examples/ or benches/ is in without a word
+      # what a build reads: the repository less its tooling and contributor docs, so editing
+      # those rebuilds nothing, while a new build.rs, examples/ or benches/ is in without a
+      # word; README.md and the licences stay, for a crate that `include_str!`s them
       src = lib.fileset.toSource {
         root = ./.;
         fileset = lib.fileset.difference ./. (

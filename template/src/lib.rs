@@ -15,13 +15,13 @@
 //!
 //! When the answer really is "this cannot happen", say so at the site
 //! with `#[expect(lint, reason = "...")]` rather than `#[allow]`. An
-//! `expect` that stops being true becomes a compile error, so the
-//! justification cannot outlive the code it justified.
+//! `expect` that stops being true fails clippy (`just clippy`, CI), so
+//! the justification cannot outlive the code it justified.
 
 /// Adds two counts, saturating at [`u64::MAX`] rather than overflowing.
 ///
-/// `clippy::arithmetic_side_effects` is denied crate-wide, so plain
-/// `left + right` would not compile: in release builds it wraps
+/// `clippy::arithmetic_side_effects` is denied crate-wide, so clippy
+/// rejects a plain `left + right`: in release builds it wraps
 /// silently, and in debug builds it panics. Naming the overflow
 /// behaviour makes it reviewable.
 ///
