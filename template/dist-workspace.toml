@@ -7,9 +7,10 @@ members = ["cargo:."]
 # generated from this file. Run `dist init` once after generating the
 # project and commit the workflow it writes. Shipping a pre-generated
 # copy would pin you to whatever `dist` version the template was built
-# against and be overwritten on your first `dist init` anyway.
+# against and be overwritten on your first `dist init` anyway. `nix develop`
+# has dist at this version (nixpkgs'); keep the two equal when either moves.
 [dist]
-cargo-dist-version = "0.32.0"
+cargo-dist-version = "0.33.0"
 ci = "github"
 installers = ["shell"]
 targets = [

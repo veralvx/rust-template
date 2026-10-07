@@ -14,6 +14,10 @@ git add .
 git commit -m "chore: initial commit from template"
 ```
 
+With [Nix](https://nixos.org), `nix develop` enters a shell with the pinned
+toolchain and every tool below; its first run writes `flake.lock` -- commit it
+too.
+
 Then, in whichever order suits you:
 
 - Push to `https://github.com/{{github_username}}/{{project-name}}`.
@@ -24,16 +28,18 @@ Then, in whichever order suits you:
 - Run `dist init` to generate `.github/workflows/release.yml` from
   `dist-workspace.toml`, and commit it.
 {% endif -%}
-- Run `just checks` once to confirm your toolchain is complete. It will tell you
-  which of `just`, `dprint`, `cog`, `cargo-audit` or the nightly Miri component
-  is missing.
+- Run `just checks` once to confirm your toolchain is complete: a step that
+  stops on a missing command names it -- `just`, `jq`, `dprint`, `cog`,
+  `cargo-audit` or the nightly Miri component ([CONTRIBUTING.md](CONTRIBUTING.md)
+  lists them; `nix develop` has them all).
 - Read [AGENTS.md](AGENTS.md) before writing code: the lint policy denies
   `unwrap`, `panic!`, indexing, unchecked arithmetic and `as` casts, and it is
   much less surprising if you know that going in.
 
 ## Requirements
 
-- Rust {{msrv}} or later (pinned in `rust-toolchain.toml`).
+- Rust {{msrv}} or later (pinned in `rust-toolchain.toml`), or Nix: `nix develop`
+  provides that toolchain{% if project_kind != "lib" %}, and `nix build` the binary{% endif %}.
 
 ## Install
 {% if project_kind == "lib" %}
@@ -127,10 +133,10 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
-{% elsif license == "MIT" %}
+{%- elsif license == "MIT" %}
 Licensed under the MIT license ([LICENSE-MIT](LICENSE-MIT) or
 <http://opensource.org/licenses/MIT>).
-{% else %}
+{%- else %}
 Licensed under the Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE)
 or <http://www.apache.org/licenses/LICENSE-2.0>).
-{% endif %}
+{%- endif %}

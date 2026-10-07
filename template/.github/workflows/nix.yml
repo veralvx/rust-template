@@ -1,0 +1,59 @@
+name: Nix
+
+# The flake's checks (flake.nix): clippy, rustfmt, rustdoc and the tests,
+# built in the sandbox with the toolchain rust-toolchain.toml pins, on this
+# runner's system; and every system's outputs evaluated, nothing built, so a
+# break on a system no runner here builds still shows. Until flake.lock is
+# committed, each run locks the inputs afresh -- commit it after the first
+# `nix develop`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "clippy.toml"
+      - "rustfmt.toml"
+      - "rust-toolchain.toml"
+      - "flake.nix"
+      - "flake.lock"
+      - ".github/workflows/nix.yml"
+  pull_request:
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "clippy.toml"
+      - "rustfmt.toml"
+      - "rust-toolchain.toml"
+      - "flake.nix"
+      - "flake.lock"
+      - ".github/workflows/nix.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  flake-check:
+    name: nix flake check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        # flakes on, and the job's token for GitHub fetches
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+
+      - name: nix flake check
+        run: nix flake check --print-build-logs
+
+      - name: Every system, evaluated
+        run: nix flake check --no-build --all-systems

@@ -4,13 +4,18 @@ Thank you for considering contributing to `{{project-name}}`!
 
 ## Prerequisites
 
-To build and test `{{project-name}}` locally you will need:
+To build and test `{{project-name}}` locally you will need either **Nix** --
+`nix develop` gives every tool below at the versions `flake.nix` pins, the
+toolchain read from `rust-toolchain.toml`, and `just miri` its nightly shell --
+or, installed yourself:
 
 - **Rust {{msrv}} or later** (pinned in `rust-toolchain.toml`, so `rustup` will
   fetch it automatically the first time you build).
 - **[just](https://github.com/casey/just)** — the command runner this project's
   automation is written in.
-- **[dprint](https://dprint.dev/)** — formats Markdown, TOML, YAML and JSON.
+- **[jq](https://jqlang.org/)** — `just test` asks `cargo metadata` through it
+  whether there are doctests to run.
+- **[dprint](https://dprint.dev/)** — formats the Markdown and TOML.
 - **[cocogitto](https://docs.cog.tools/)** (`cog`) — enforces Conventional
   Commits.
 - **A nightly toolchain with the `miri` component**
@@ -18,9 +23,11 @@ To build and test `{{project-name}}` locally you will need:
   `cargo +nightly miri test`, and so does CI.
 - **cargo-audit** (`cargo install cargo-audit`), for the dependency advisory
   scan.
+- **[git-cliff](https://git-cliff.org/)**, for maintainers: `just changelog`
+  and `just release` write the changelog with it.
 
-The last two are easy to miss: without them `just checks` fails on tooling
-rather than on anything wrong with your change.
+The nightly Miri toolchain and cargo-audit are easy to miss: without them
+`just checks` fails on tooling rather than on anything wrong with your change.
 
 ## Setup
 
@@ -84,7 +91,9 @@ passes on your machine, your code should pass CI — the workflows under
 ## Creating a Pull Request
 
 1. Ensure your code passes `just checks` locally.
-2. Open a Pull Request against the `main` branch.
+2. Open a Pull Request against the `main` branch, titled as a conventional
+   commit: a squash merge makes the title the commit, and so a changelog entry
+   (CI checks it).
 3. In your PR description, outline the problem you are solving. Link the
    relevant issue (e.g. `Fixes #123`), if any.
 4. Wait for a maintainer to review your code.

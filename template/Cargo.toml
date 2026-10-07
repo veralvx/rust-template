@@ -3,16 +3,18 @@
 members = ["crates/{{project-name}}", "crates/{{project-name}}-core"]
 resolver = "3"
 
+# The keys in the order dprint's TOML plugin (cargo conventions) keeps them,
+# so a generated project passes `dprint check` as it stands.
 [workspace.package]
 version = "0.1.0"
-edition = "2024"
-rust-version = "{{msrv}}"
 authors = ["{{author_name}}{% if author_email != "" %} <{{author_email}}>{% endif %}"]
+edition = "2024"
+{% assign kw_list = keywords | split: "," -%}
+keywords = [{% for k in kw_list %}"{{ k | strip }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]
 license = "{{license}}"
 readme = "README.md"
 repository = "https://github.com/{{github_username}}/{{project-name}}"
-{% assign kw_list = keywords | split: "," -%}
-keywords = [{% for k in kw_list %}"{{ k | strip }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]
+rust-version = "{{msrv}}"
 
 # The binary depends on the library by path *and* version. The path is
 # what the workspace builds against; the version is what `cargo publish`
@@ -26,32 +28,37 @@ keywords = [{% for k in kw_list %}"{{ k | strip }}"{% unless forloop.last %}, {%
 # describe an individual crate, and crates.io shows them per package.
 # Each member sets its own.
 {% else -%}
+# The keys in the order dprint's TOML plugin (cargo conventions) keeps them,
+# so a generated project passes `dprint check` as it stands.
 [package]
 name = "{{project-name}}"
 version = "0.1.0"
-edition = "2024"
-rust-version = "{{msrv}}"
-description = "{{description}}"
 authors = ["{{author_name}}{% if author_email != "" %} <{{author_email}}>{% endif %}"]
+{% assign cat_list = categories | split: "," -%}
+categories = [{% for c in cat_list %}"{{ c | strip }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]
+edition = "2024"
+{% assign kw_list = keywords | split: "," -%}
+keywords = [{% for k in kw_list %}"{{ k | strip }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]
 license = "{{license}}"
 readme = "README.md"
 repository = "https://github.com/{{github_username}}/{{project-name}}"
-{% assign kw_list = keywords | split: "," -%}
-keywords = [{% for k in kw_list %}"{{ k | strip }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]
-{% assign cat_list = categories | split: "," -%}
-categories = [{% for c in cat_list %}"{{ c | strip }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]
+rust-version = "{{msrv}}"
+description = "{{description}}"
 
 # Keeps the published .crate to source, docs and licences. None of the
 # excluded files do anything for someone consuming this from crates.io,
 # and a shipped rust-toolchain.toml can surprise anyone who builds from
 # an extracted .crate directory.
 exclude = [
-  "/.github",
   "/.cargo",
+  "/.github",
+  "/.gitignore",
   "/cliff.toml",
   "/cog.toml",
   "/dist-workspace.toml",
   "/dprint.json",
+  "/flake.lock",
+  "/flake.nix",
   "/justfile",
   "/rust-toolchain.toml",
 ]
@@ -138,15 +145,14 @@ pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
 restriction = { level = "warn", priority = -1 }
 
-# Three names below are newer than the edition-2024 floor of Rust 1.85:
-# `unchecked_time_subtraction` exists from 1.92, `inline_trait_bounds`
+# Three names below are newer than the template's MSRV floor of Rust
+# 1.90: `unchecked_time_subtraction` exists from 1.92, `inline_trait_bounds`
 # and `inline_modules` from 1.97. On an older toolchain they are simply
-# unknown: clippy prints `unknown lint` and carries on (exit code 0,
-# verified), and rustc ignores `clippy::` names it does not recognise
-# entirely, so `cargo check` and `cargo test` stay silent. Nothing
-# breaks below 1.97 -- you just see the warnings locally, because
-# `rust-toolchain.toml` pins clippy to this crate's MSRV. CI runs clippy
-# on stable, where all three exist.
+# unknown: clippy prints `unknown lint` and carries on (exit code 0), and
+# rustc ignores `clippy::` names it does not recognise entirely, so `cargo
+# check` and `cargo test` stay silent. Nothing breaks below 1.97 -- you
+# just see the warnings locally, because `rust-toolchain.toml` pins clippy
+# to this crate's MSRV. CI runs clippy on stable, where all three exist.
 
 # --- panics and other silent aborts: denied outright -----------------
 # Every one of these is a way for the program to stop without returning
@@ -160,7 +166,7 @@ indexing_slicing = "deny"
 arithmetic_side_effects = "deny"
 unreachable = "deny"
 unimplemented = "deny"
-unchecked_time_subtraction = "deny" # name exists from Rust 1.92 (see the note below)
+unchecked_time_subtraction = "deny" # name exists from Rust 1.92 (see the note above)
 todo = "deny"
 string_slice = "deny"
 panic_in_result_fn = "deny"

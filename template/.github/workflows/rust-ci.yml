@@ -4,6 +4,13 @@ name: Rust CI (check, test, clippy, fmt, docs, miri)
 # processed by the template engine -- `${{ ... }}` below is a GitHub
 # Actions expression, not a placeholder. Anything project-specific must
 # therefore be derived at run time, as the MSRV job does below.
+#
+# Toolchains: rust-toolchain.toml pins the MSRV, and rustup obeys that file
+# over the default a toolchain action sets -- so the jobs meant for the
+# latest stable say so with RUSTUP_TOOLCHAIN (which outranks the file), and
+# the MSRV job is the one that builds with the pinned toolchain. Actions are
+# pinned to commits (Dependabot moves them); dtolnay/rust-toolchain is pinned
+# to a commit of its master branch and told the toolchain.
 
 on:
   push:
@@ -11,7 +18,9 @@ on:
       - "**/*.rs"
       - "**/Cargo.toml"
       - "**/Cargo.lock"
+      - ".cargo/config.toml"
       - "clippy.toml"
+      - "rustfmt.toml"
       - "rust-toolchain.toml"
       - ".github/workflows/rust-ci.yml"
   pull_request:
@@ -19,7 +28,9 @@ on:
       - "**/*.rs"
       - "**/Cargo.toml"
       - "**/Cargo.lock"
+      - ".cargo/config.toml"
       - "clippy.toml"
+      - "rustfmt.toml"
       - "rust-toolchain.toml"
       - ".github/workflows/rust-ci.yml"
 
@@ -38,18 +49,22 @@ jobs:
   check:
     name: Check (${{ matrix.features }})
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
     strategy:
       fail-fast: false
       matrix:
         features: ["--all-features"]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
 
       - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: check-${{ matrix.features }}
 
@@ -59,18 +74,22 @@ jobs:
   test:
     name: Test (${{ matrix.features }})
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
     strategy:
       fail-fast: false
       matrix:
         features: ["--all-features"]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
 
       - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: test-${{ matrix.features }}
 
@@ -99,18 +118,21 @@ jobs:
       matrix:
         features: ["--all-features"]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install nightly + miri
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
+          toolchain: nightly
           components: miri
 
       - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: miri-${{ matrix.features }}
 
+      # `+nightly` outranks rust-toolchain.toml; MIRIFLAGS come from
+      # .cargo/config.toml's [env], which cargo hands to Miri's runner
       - name: cargo miri setup
         run: cargo +nightly miri setup
 
@@ -120,20 +142,23 @@ jobs:
   clippy:
     name: Clippy (${{ matrix.features }})
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
     strategy:
       fail-fast: false
       matrix:
         features: ["--all-features"]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install stable + clippy
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
+          toolchain: stable
           components: clippy
 
       - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: clippy-${{ matrix.features }}
 
@@ -144,12 +169,8 @@ jobs:
     name: MSRV
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # dtolnay/rust-toolchain ignores rust-toolchain.toml, so the
-      # stable jobs above test the latest stable -- this job is the one
-      # that verifies the declared MSRV still builds and passes.
-      #
       # The version is read from Cargo.toml rather than pinned here, so
       # `rust-version` stays the single source of truth. A pin in this
       # file would drift the first time the MSRV is raised.
@@ -165,30 +186,43 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "MSRV is $version"
 
+      # rust-toolchain.toml names the same version, so rustup's choice and
+      # this install agree; a mismatch between the two fails here
       - name: Install MSRV toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
 
       - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: msrv-${{ steps.msrv.outputs.version }}
 
       - name: Check + test on MSRV
+        env:
+          MSRV: ${{ steps.msrv.outputs.version }}
         run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+          if [ "$channel" != "$MSRV" ]; then
+            echo "::error file=rust-toolchain.toml::channel $channel is not the MSRV $MSRV" >&2
+            exit 1
+          fi
           cargo check --workspace --all-targets --locked
           cargo test --workspace --locked
 
   fmt:
     name: Format
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install stable + rustfmt
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:
+          toolchain: stable
           components: rustfmt
 
       - name: cargo fmt
@@ -197,14 +231,18 @@ jobs:
   docs:
     name: Docs
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
 
       - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: docs
 

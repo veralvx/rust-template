@@ -2,6 +2,8 @@
 # processed by the template engine -- the double-brace interpolation
 # below is just's own, not a cargo-generate placeholder. Keep this file
 # project-agnostic: a prompted value written here would ship unexpanded.
+# What a recipe needs to know about the project it reads at run time
+# (`cargo metadata`, Cargo.toml).
 #
 # Formatted with `just --fmt --unstable`.
 
@@ -9,42 +11,46 @@ default:
     @just --list --unsorted
 
 cargo-check:
-    cargo check --workspace --all-targets --all-features
-    #cargo check --workspace --all-targets --no-default-features
+    cargo check --workspace --all-targets --all-features --locked
 
 test:
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo test --workspace --all-targets --all-features
-    #cargo test --workspace --no-default-features
+    cargo test --workspace --all-targets --all-features --locked
 
     # `--all-targets` silently skips doctests, so they need their own run.
     # But `--doc` exits 101 with "no library targets found" on a
     # binary-only crate, so only run it when there is something to run.
     if cargo metadata --no-deps --format-version 1 \
          | jq -e '[.packages[].targets[] | select(.doctest)] | length > 0' > /dev/null; then
-      cargo test --workspace --doc --all-features
+      cargo test --workspace --doc --all-features --locked
     else
       echo "No library target in this package; skipping doctests."
     fi
 
-clippy:
-    #!/bin/sh
-    export RUSTFLAGS="-Dwarnings"
-    cargo clippy --all-targets --all-features --workspace
-    #cargo clippy --all-targets --no-default-features --workspace
-    #cargo +nightly clippy --all-targets --all-features --workspace
-
+# Miri needs a nightly toolchain: rustup's `+nightly`, or under Nix (no
+# rustup) the flake's `miri` shell. MIRIFLAGS come from .cargo/config.toml.
+[doc("The tests under Miri (nightly)")]
 miri:
-    cargo +nightly miri test
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v rustup > /dev/null; then
+      cargo +nightly miri test --workspace --all-features --locked
+    else
+      nix develop .#miri --command cargo miri test --workspace --all-features --locked
+    fi
+
+# `-- -D warnings`, as CI runs it: a RUSTFLAGS=-Dwarnings would change
+# the build's fingerprint and rebuild everything the other recipes built.
+[doc("Clippy, every warning an error")]
+clippy:
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 fmt-check:
-    cargo fmt --check
+    cargo fmt --all -- --check
 
 docs-check:
-    #!/bin/sh
-    export RUSTDOCFLAGS="-Dwarnings"
-    cargo doc --workspace --no-deps --all-features
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
 
 cog:
     cog check
@@ -77,15 +83,37 @@ fmt:
     cargo fmt
     dprint fmt
 
+[doc("dprint's plugins to their latest releases (dprint.json), then the Markdown and TOML rechecked")]
+dprint-update:
+    dprint config update
+    dprint check
+
+# git-cliff, offline, with the repository the compare links need read
+# from Cargo.toml's `repository` (cliff.toml is project-agnostic).
+[doc("The changelog from the commits (cliff.toml): `just changelog --unreleased` previews the next release")]
+[positional-arguments]
+changelog *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    url="$(cargo metadata --no-deps --format-version 1 | jq -r '[.packages[].repository | select(. != null)][0] // ""')"
+    case "$url" in
+      https://github.com/*/*) repo="${url#https://github.com/}"; repo="${repo%.git}"; repo="${repo%/}" ;;
+      *) echo "Error: Cargo.toml's repository is not a GitHub URL (got '$url')." >&2; exit 1 ;;
+    esac
+    git cliff --offline --github-repo "$repo" "$@"
+
 [doc("Release a new version: [major|minor|patch]")]
+[positional-arguments]
 release semver:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    # 0. Validate argument
-    case "{{ semver }}" in
+    # 0. Validate the argument -- passed as $1, never spliced into this
+    #    script's text, so no value can run as code
+    semver="$1"
+    case "$semver" in
       major|minor|patch) ;;
-      *) echo "Error: argument must be 'major', 'minor', or 'patch' (got '{{ semver }}')" >&2; exit 1 ;;
+      *) echo "Error: argument must be 'major', 'minor', or 'patch' (got '$semver')" >&2; exit 1 ;;
     esac
 
     # 1. Safety: working directory must be clean
@@ -108,32 +136,60 @@ release semver:
       exit 1
     fi
 
-    # 4. Compute the bumped version tag.
-    # Handles both git-cliff v1 (array) and v2+ (object with .releases) JSON.
-    tag="$(git cliff --unreleased --bump {{ semver }} --context \
-      | jq -r 'if type == "array" then .[0].version else .releases[0].version end')"
+    # 4. Compute the bumped version tag. With no tag yet, git-cliff
+    #    answers cliff.toml's `initial_tag`, v0.1.0, whatever the level:
+    #    the first release is the version the crate starts at.
+    context="$(just changelog --unreleased --bump "$semver" --context \
+      | jq -c 'if type == "array" then .[0] else .releases[0] end')"
+    tag="$(jq -r '.version' <<< "$context")"
 
     if [ -z "$tag" ] || [ "$tag" = "null" ]; then
       echo "Error: Could not determine bumped version. Are there unreleased conventional commits?" >&2
       exit 1
     fi
-
-    # If anything below fails before the commit, restore the three files.
-    # Uses HEAD (not the index) so cleanup works even after git-add.
-    trap 'echo "Release aborted — restoring modified files." >&2; git checkout HEAD -- Cargo.toml Cargo.lock CHANGELOG.md 2>/dev/null' ERR
+    # what the changelog would list: git-cliff bumps even an empty range
+    if [ "$(jq '.commits | length' <<< "$context")" -eq 0 ]; then
+      echo "Error: nothing to release -- no commit since the last tag would enter the changelog." >&2
+      exit 1
+    fi
+    if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+      echo "Error: $tag is already tagged; nothing new to release at this level." >&2
+      exit 1
+    fi
 
     # Strip a leading 'v' for Cargo (e.g. v1.2.3 → 1.2.3)
     raw_version="${tag#v}"
 
-    # 5. Bump the version in Cargo.toml.
-    #
-    # Read the outgoing version first: step 5a needs it to find the
-    # intra-workspace dependencies pinned to it.
+    # Read the outgoing version: the new one may not go below it, and
+    # step 5a needs it to find the intra-workspace dependencies pinned to it.
     old_version="$(awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}' Cargo.toml)"
+    if ! printf '%s\n' "$old_version" "$raw_version" | sort -C -V; then
+      echo "Error: $tag is below the version Cargo.toml already carries ($old_version)." >&2
+      exit 1
+    fi
+
+    # 5. Every check CI runs, before anything is written: a release is
+    #    never cut from a commit that would fail them.
+    just checks
+
+    # If anything below fails before the commit, restore what it changed:
+    # the manifests from HEAD, and a CHANGELOG.md the first release created.
+    restore() {
+      echo "Release aborted — restoring modified files." >&2
+      git checkout HEAD -- Cargo.toml Cargo.lock
+      if git ls-files --error-unmatch CHANGELOG.md > /dev/null 2>&1; then
+        git checkout HEAD -- CHANGELOG.md
+      else
+        rm -f CHANGELOG.md
+      fi
+    }
+    trap restore ERR
+
+    # 6. Bump the version in Cargo.toml.
     #
     # Only the first top-level `version =` is rewritten, which is the one
-    # in [package]: a `version = "1.0"` inside a [dependencies] entry is
-    # indented or inline and does not match `^version`.
+    # in [package] (or [workspace.package]): a `version = "1.0"` inside a
+    # [dependencies] entry is indented or inline and does not match `^version`.
     awk -v ver="$raw_version" '
       /^version[[:space:]]*=/ && !done {
         print "version = \"" ver "\""
@@ -143,14 +199,14 @@ release semver:
       1
     ' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
 
-    # 5a. In a workspace, the intra-workspace dependencies carry the
+    # 6a. In a workspace, the intra-workspace dependencies carry the
     # same version as a `version = "..."` alongside their `path = "..."`,
     # and publishing fails if it goes stale. Rewrite the version only on
     # lines that also carry a `path =`, which is exactly those; in a
     # single-package manifest there are none and this is a no-op.
     sed -i "/path = /s/version = \"$old_version\"/version = \"$raw_version\"/g" Cargo.toml
 
-    # 5b. Guard: the rewrite must actually have landed. awk exits 0 whether
+    # 6b. Guard: the rewrite must actually have landed. awk exits 0 whether
     # or not it matched, so an unrecognised manifest layout would otherwise
     # produce a tag for a version that was never written.
     ws_ver="$(awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}' Cargo.toml)"
@@ -160,28 +216,29 @@ release semver:
       exit 1
     fi
 
-    # 6. Regenerate Cargo.lock to reflect the new version
+    # 7. Regenerate Cargo.lock to reflect the new version
     cargo check --quiet
 
-    # 7. Regenerate the full changelog
-    git cliff --bump {{ semver }} --output CHANGELOG.md
+    # 8. Regenerate the full changelog
+    just changelog --bump "$semver" --output CHANGELOG.md
 
-    # 8. Stage exactly the three files modified by the release process
+    # 9. Stage exactly the three files modified by the release process
     git add Cargo.toml Cargo.lock CHANGELOG.md
 
-    # 9. Commit and tag — clear the trap first: once committed, a push
-    #    failure is solved by retrying the push, not by reverting files.
+    # 10. Commit and tag — clear the trap first: once committed, a push
+    #     failure is solved by retrying the push, not by reverting files.
     trap - ERR
     git commit -m "chore(release): bump to $tag"
     git tag -a "$tag" -m "Release $tag"
 
-    # 10. Push branch and tag atomically, then publish.
-    #     `--workspace` publishes every member in dependency order, and
-    #     is correct for a single-package manifest too (a package with no
+    # 11. Push the branch and the tag atomically -- both or neither --
+    #     then publish. `--workspace` publishes every member in dependency
+    #     order (cargo 1.90+, hence the template's MSRV floor), and is
+    #     correct for a single-package manifest too (a package with no
     #     [workspace] table is its own workspace of one).
     #     Drop the `cargo publish` line for a crate that is not published
     #     to a registry.
-    git push --follow-tags origin main
+    git push --atomic origin main "$tag"
     cargo publish --workspace
 
     echo "Released $tag"
@@ -207,10 +264,12 @@ valgrind:
     vg=(valgrind --tool=memcheck --leak-check=full
         --show-leak-kinds=definite,indirect --errors-for-leak-kinds=definite,indirect
         --track-origins=yes --error-exitcode=99 -q)
+    # a private directory: the reports outlive the run when it fails
+    logs="$(mktemp -d)"
     cargo test --workspace --no-run --message-format=json 2>/dev/null \
       | jq -r 'select(.reason=="compiler-artifact" and .profile.test and .executable)
                | "\(.target.name)\t\(.executable)"' \
-      | sort -u > /tmp/vg-targets.tsv
+      | sort -u > "$logs/targets.tsv"
 
     # Read from a file rather than a pipe: a `while` on the right of a pipe
     # runs in a subshell, so an `exit 1` inside it would not fail the
@@ -218,12 +277,14 @@ valgrind:
     failed=0
     while IFS=$'\t' read -r name exe; do
       printf '%-24s ' "$name"
-      if "${vg[@]}" "$exe" --test-threads=1 >/dev/null 2>"/tmp/vg-$name.err"; then
+      if "${vg[@]}" "$exe" --test-threads=1 >/dev/null 2>"$logs/$name.err"; then
         echo "clean"
       else
-        echo "ERRORS -> /tmp/vg-$name.err"
+        echo "ERRORS -> $logs/$name.err"
         failed=1
       fi
-    done < /tmp/vg-targets.tsv
-    rm -f /tmp/vg-targets.tsv
+    done < "$logs/targets.tsv"
+    if [ "$failed" -eq 0 ]; then
+      rm -rf "$logs"
+    fi
     exit "$failed"

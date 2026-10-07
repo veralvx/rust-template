@@ -1,8 +1,9 @@
 version: 2
 
-# Covers the cargo and github-actions ecosystems only. Two things in
+# Covers the cargo and github-actions ecosystems only. Three things in
 # this repository are version-pinned and are NOT updated here:
-#   - the dprint plugin URLs in dprint.json
+#   - the dprint plugin URLs in dprint.json: `just dprint-update`
+#   - flake.lock's nixpkgs and rust-overlay: `nix flake update`
 #   - the toolchain in rust-toolchain.toml, which tracks the MSRV
 #     deliberately and should move only when you raise `rust-version`
 updates:
@@ -15,8 +16,10 @@ updates:
       time: "06:00"
       timezone: "UTC"
     open-pull-requests-limit: 10
+    # `build(deps): ...` -- a changelog entry (cliff.toml), so a release can
+    # carry a dependency update; `chore` is left out of the changelog
     commit-message:
-      prefix: "chore"
+      prefix: "build"
       include: "scope"
     labels:
       - "dependencies"
@@ -43,8 +46,9 @@ updates:
       time: "07:00"
       timezone: "UTC"
     open-pull-requests-limit: 5
+    # `ci(deps): ...` -- nothing a user of the crate meets, so no changelog entry
     commit-message:
-      prefix: "chore"
+      prefix: "ci"
       include: "scope"
     labels:
       - "dependencies"

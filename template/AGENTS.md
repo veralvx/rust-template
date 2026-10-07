@@ -73,14 +73,16 @@ a reason. Say what makes the operation safe.
 ## 4. Commits
 
 [Conventional Commits](https://www.conventionalcommits.org/) are enforced by
-`cog check` locally and in CI. The changelog is generated from them, so the
-subject line is user-facing text:
+`cog check` locally and in CI. The changelog is generated from them
+(`cliff.toml`), so the subject line is user-facing text; `chore`, `ci` and
+`style` commits stay out of it, and `!` or a `BREAKING CHANGE` footer lists a
+commit first:
 
 ```
 feat(parser): accept bare keys in section headers
 fix: reject a trailing separator instead of panicking
 docs: explain why exit is denied
-chore(deps): bump serde from 1.0.200 to 1.0.201
+build(deps): bump serde from 1.0.200 to 1.0.201
 ```
 
 ## 5. Before you claim a change is done

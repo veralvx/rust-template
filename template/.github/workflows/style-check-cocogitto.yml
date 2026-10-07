@@ -1,9 +1,15 @@
 name: Conventional Commits Check
 
+# On a push, the whole history rather than `--from-latest-tag`: with no tag
+# yet, cog stops "unable to get any tag" -- every new project's first push.
+# A pull request's title too: a squash merge of two or more commits makes the
+# title the commit, and so a changelog entry -- checked again when edited.
+
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -18,21 +24,27 @@ jobs:
     name: Check Conventional Commits
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Check PR Commits
         if: github.event_name == 'pull_request'
-        uses: cocogitto/cocogitto-action@v4
+        uses: cocogitto/cocogitto-action@52d0023b4396897f1815648e553db2ab8d782f3a # v4.2.0
         with:
           command: check
           args: --ignore-merge-commits ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
 
-      - name: Check Push/Main Commits
+      - name: Check PR Title
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }} # through the environment, never the script
+        run: cog verify "$TITLE"
+
+      - name: Check Push Commits
         if: github.event_name == 'push'
-        uses: cocogitto/cocogitto-action@v4
+        uses: cocogitto/cocogitto-action@52d0023b4396897f1815648e553db2ab8d782f3a # v4.2.0
         with:
           command: check
-          args: --from-latest-tag --ignore-merge-commits
+          args: --ignore-merge-commits
