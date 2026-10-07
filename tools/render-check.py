@@ -23,6 +23,10 @@ real cargo-generate is byte-identical to this harness's apart from that
 one trailing byte, so do not use this to check trailing whitespace.
 Anything about whitespace, run the smoke-test workflow instead.
 
+When `nix-instantiate` is on PATH, every rendered `.nix` file is parsed
+too (no evaluation: that needs the flake's inputs; the smoke test runs
+`nix flake check`).
+
 Usage:  python3 tools/render-check.py
 Exit:   0 = all good, 1 = at least one check failed.
 """
@@ -33,6 +37,8 @@ import fnmatch
 import json
 import pathlib
 import re
+import shutil
+import subprocess
 import sys
 import tomllib
 
@@ -148,6 +154,21 @@ def main() -> int:
     else:
         fail("expected both a single-package and a workspace copy of lib.rs")
 
+    # 1e. Each workspace member carries copies of the root's licence texts
+    #     (a member's .crate holds its own directory only): byte-identical,
+    #     so the copies cannot drift from the root's.
+    print("== member licence copies")
+    for member in sorted((TEMPLATE / "crates").iterdir()):
+        for name in ("LICENSE-MIT", "LICENSE-APACHE"):
+            copy = member / name
+            if not copy.exists():
+                fail(f"crates/{member.name}/{name} is missing")
+            elif copy.read_bytes() != (TEMPLATE / name).read_bytes():
+                fail(f"crates/{member.name}/{name} differs from the root's {name}")
+    print("  checked the members' licence files")
+
+    nix = shutil.which("nix-instantiate")
+
     files = sorted(
         p for p in TEMPLATE.rglob("*") if p.is_file() and p.name != "cargo-generate.toml"
     )
@@ -262,6 +283,12 @@ def main() -> int:
                     yaml.safe_load(out)
                 elif suffix == ".json":
                     json.loads(out)
+                elif suffix == ".nix" and nix and rel not in ignored:
+                    parsed = subprocess.run(
+                        [nix, "--parse", "-"], input=out, capture_output=True, text=True, check=False
+                    )
+                    if parsed.returncode != 0:
+                        raise ValueError(parsed.stderr.strip())
             except Exception as exc:  # noqa: BLE001 - report and continue
                 fail(f"{rel}: invalid {suffix.lstrip('.') or 'text'} after render: {exc}")
 

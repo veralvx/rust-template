@@ -1,0 +1,159 @@
+name: Template smoke test
+
+# The template proven the only way that counts: generated with the real
+# cargo-generate, for every project_kind, and the result put through what its
+# own CI and `just checks` run. Weekly as well, because a template rots
+# without a commit: a new clippy lint, a new nightly, a moved nixpkgs.
+#
+#   render-check   tools/render-check.py: every prompt combination renders
+#                  and parses; the config invariants hold
+#   generate       cargo-generate, then the generated justfile's recipes
+#                  (clippy on the pinned MSRV and on stable, Miri on nightly),
+#                  dprint, cog, git-cliff and `cargo package`
+#   nix            the generated flake.nix: `nix flake check`, `nix build`
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  render-check:
+    name: render-check.py
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Render every combination
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet python-liquid==2.3.4 pyyaml==6.0.3
+          "$RUNNER_TEMP/venv/bin/python" tools/render-check.py
+
+  generate:
+    name: Generate (${{ matrix.kind }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [bin, lib, both, workspace]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - name: Install nightly + miri
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: nightly
+          components: miri
+
+      - name: Cache Cargo (and the tools it installs)
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: smoke-${{ matrix.kind }}
+          workspaces: ${{ runner.temp }}/generated/demo
+
+      - name: Install the tools
+        run: >-
+          cargo +stable install --locked cargo-generate@0.25.0 just@1.58.0
+          cocogitto@7.0.0 git-cliff@2.14.2 cargo-audit@0.22.2
+
+      - name: Generate
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/generated"
+          cargo +stable generate --path "$GITHUB_WORKSPACE" template --name demo \
+            --destination "$RUNNER_TEMP/generated" -d project_kind=${{ matrix.kind }} \
+            --silent -d "description=Does a thing." -d "author_name=Jane Doe" \
+            -d author_email=jane@example.com -d github_username=jane \
+            -d "license=MIT OR Apache-2.0" -d msrv=1.97 -d keywords=cli,parser \
+            -d categories=command-line-utilities
+          cd "$RUNNER_TEMP/generated/demo"
+          git add .
+          git -c user.name=smoke -c user.email=smoke@example.com \
+            commit --quiet -m "chore: initial commit from template"
+
+      - name: The justfile's checks (the pinned MSRV toolchain)
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          set -euo pipefail
+          just --fmt --check --unstable
+          just cargo-check test clippy fmt-check docs-check cog audit
+          just miri
+
+      - name: Clippy on stable (what CI runs; new lints land here first)
+        working-directory: ${{ runner.temp }}/generated/demo
+        env:
+          RUSTUP_TOOLCHAIN: stable
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: dprint, with the plugins dprint.json pins
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: npx --yes dprint@0.61.0 check
+
+      - name: The changelog, and the package crates.io would get
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          set -euo pipefail
+          just changelog --unreleased
+          cargo +stable package --workspace --locked
+
+  nix:
+    name: Nix (${{ matrix.kind }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [bin, lib, both, workspace]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+
+      - name: Generate
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/generated"
+          nix run nixpkgs#cargo-generate -- generate --path "$GITHUB_WORKSPACE" template \
+            --name demo --destination "$RUNNER_TEMP/generated" -d project_kind=${{ matrix.kind }} \
+            --silent -d "description=Does a thing." -d "author_name=Jane Doe" \
+            -d author_email=jane@example.com -d github_username=jane \
+            -d "license=MIT OR Apache-2.0" -d msrv=1.97 -d keywords=cli,parser \
+            -d categories=command-line-utilities
+          # a git flake sees tracked files only
+          git -C "$RUNNER_TEMP/generated/demo" add .
+
+      - name: nix flake check (every system evaluated, this one built)
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          nix flake check --no-build --all-systems
+          nix flake check --print-build-logs
+
+      - name: nix build
+        if: matrix.kind != 'lib'
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          nix build --print-build-logs
+          ./result/bin/demo
