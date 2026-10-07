@@ -49,6 +49,7 @@
         fileset = lib.fileset.difference ./. (
           lib.fileset.unions (
             map lib.fileset.maybeMissing [
+              ./.githooks
               ./.github
               ./.gitignore
               ./AGENTS.md

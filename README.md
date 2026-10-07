@@ -147,6 +147,8 @@ cliff.toml            git-cliff changelog generation, grouped by commit type
 cog.toml              cocogitto / Conventional Commits
 dist-workspace.toml   cargo-dist config (binaries only)
 justfile              `just checks` = the nine checks CI runs; `just release`
+.githooks/            opt-in (`just install-hooks`): formatting before a
+                      commit, Conventional Commits for the message and the push
 flake.nix             Nix: the pinned toolchain and every tool, the package,
                       CI's checks as derivations
 .cargo/config.toml    Miri flags
@@ -280,7 +282,9 @@ the repository.
 weekly, on pushes to `main` and on every pull request: render-check; all 24
 answer combinations through the actual `cargo-generate` (each manifest parsed,
 each licence file where its choice puts it, `dprint check`); for each
-`project_kind`, a generated project put through its own `just` recipes (clippy
+`project_kind`, a generated project's git hooks installed and shown to refuse an
+unformatted file, a bad message and a pushed revert, then the project put
+through its own `just` recipes (clippy
 on the pinned MSRV and on stable, Miri on nightly, `cargo audit`, `cog check`),
 `dprint check`, `just changelog` and `cargo package`, and for the workspace two
 `just release`s against a bare remote; and each flake through `nix flake check`
@@ -338,8 +342,13 @@ Also confirmed by running it, not by reading it:
   (`just miri` standing in as a native `cargo test`): the 24 generations with
   their licence files and `dprint check`, and the two releases with their tags,
   version and compare link, the empty third refused.
+- The git hooks, run as the smoke test's step does, for `bin`, `lib` and
+  `workspace`: an unformatted file, a message cog rejects and a pushed revert
+  refused, each for that reason, and a clean push accepted. The two releases
+  then commit and push through them, the tag included; a release commit a hook
+  refuses restores the manifests and tags nothing.
 - The workflows pass actionlint 1.7.12 with shellcheck 0.9.0, and the justfile's
-  shell recipes pass shellcheck.
+  shell recipes and the hooks pass shellcheck.
 
 What this does **not** cover -- the smoke-test workflow is what does:
 

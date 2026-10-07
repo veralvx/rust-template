@@ -1,0 +1,6 @@
+#!/bin/sh
+# Formatting only, so a commit stays fast: clippy, the tests and the rest
+# are `just checks` and CI. Checks the working tree, not just what is staged.
+set -eu
+just fmt-check dprint-check
+just --fmt --check --unstable

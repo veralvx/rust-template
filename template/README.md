@@ -34,6 +34,8 @@ Then, in whichever order suits you:
   stops on a missing command names it -- `just`, `jq`, `dprint`, `cog`,
   `cargo-audit` or the nightly Miri component ([CONTRIBUTING.md](CONTRIBUTING.md)
   lists them; `nix develop` has them all).
+- `just install-hooks`, if you want CI's formatting and commit-message checks
+  run by git before each commit and push (opt-in, `.githooks/`).
 - Read [AGENTS.md](AGENTS.md) before writing code: the lint policy denies
   `unwrap`, `panic!`, indexing, unchecked arithmetic and `as` casts, and it is
   much less surprising if you know that going in.

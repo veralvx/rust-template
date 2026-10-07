@@ -1,0 +1,4 @@
+#!/bin/sh
+# The message, as CI's Conventional Commits check will read it.
+set -eu
+cog verify --file "$1"

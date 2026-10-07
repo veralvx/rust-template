@@ -89,6 +89,12 @@ fmt:
     cargo fmt
     dprint fmt
 
+# Opt-in, as every git hook is: a clone never installs one, so CI stays
+# the gate. `git config --unset core.hooksPath` turns them off again.
+[doc("Use .githooks: formatting before a commit, Conventional Commits for the message and before a push")]
+install-hooks:
+    git config core.hooksPath .githooks
+
 [doc("dprint's plugins to their latest releases (dprint.json), then the Markdown and TOML rechecked")]
 dprint-update:
     dprint config update
@@ -231,10 +237,11 @@ release semver:
     # 9. Stage exactly the three files modified by the release process
     git add Cargo.toml Cargo.lock CHANGELOG.md
 
-    # 10. Commit and tag — clear the trap first: once committed, a push
-    #     failure is solved by retrying the push, not by reverting files.
-    trap - ERR
+    # 10. Commit, then clear the trap: a refused commit (a git hook) still
+    #     restores the files, but once committed, a failure is solved by
+    #     retrying the tag or the push, not by reverting files.
     git commit -m "chore(release): bump to $tag"
+    trap - ERR
     git tag -a "$tag" -m "Release $tag"
 
     # 11. Push the branch and the tag atomically -- both or neither --

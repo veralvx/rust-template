@@ -74,7 +74,9 @@ a reason. Say what makes the operation safe.
 ## 4. Commits
 
 [Conventional Commits](https://www.conventionalcommits.org/) are enforced by
-`cog check` locally and in CI. The changelog is generated from them
+`cog check` locally and in CI, and by the git hooks when installed (`just
+install-hooks`) -- never bypass them with `--no-verify`. `git revert` writes
+`Revert "..."`, which CI refuses: reword it as `revert: ...`. The changelog is generated from them
 (`cliff.toml`), so the subject line is user-facing text; `chore`, `ci` and
 `style` commits stay out of it, and `!` or a `BREAKING CHANGE` footer lists a
 commit first:

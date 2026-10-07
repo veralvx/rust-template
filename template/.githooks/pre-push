@@ -1,0 +1,12 @@
+#!/bin/sh
+# Every pushed commit's history, as CI checks it: `git revert` and
+# `git cherry-pick` commit without running commit-msg, and their default
+# messages (`Revert "..."`) are not Conventional Commits.
+set -eu
+while read -r _local_ref local_oid _remote_ref _remote_oid; do
+  case "$local_oid" in
+    # `..<commit>`: all its history, as `cog check` reads HEAD's
+    *[!0]*) cog check "..$(git rev-parse "$local_oid^{commit}")" ;;
+    *) ;; # a deletion: nothing is pushed
+  esac
+done

@@ -51,6 +51,7 @@ description = "{{description}}"
 # an extracted .crate directory.
 exclude = [
   "/.cargo",
+  "/.githooks",
   "/.github",
   "/.gitignore",
   "/cliff.toml",

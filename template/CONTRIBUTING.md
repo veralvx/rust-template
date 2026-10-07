@@ -38,6 +38,12 @@ The nightly Miri toolchain and cargo-audit are easy to miss: without them
 git clone https://github.com/<you>/{{project-name}} && cd {{project-name}}
 ```
 
+3. Optionally, `just install-hooks`: `.githooks/` then checks formatting before
+   each commit, the message as a Conventional Commit, and every pushed commit's
+   message before a push -- what CI would refuse, minutes earlier. They need
+   `just`, `cargo`, `dprint` and `cog` on `PATH` (inside `nix develop`, with
+   Nix); `git config --unset core.hooksPath` turns them off.
+
 ## Guidelines
 
 Before you start, read [AGENTS.md](AGENTS.md). It documents the lint policy —
