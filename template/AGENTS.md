@@ -49,8 +49,9 @@ Each has a total counterpart. Use it:
 every `Drop` on the way out, so buffered output goes unflushed and cleanup does
 not run. Return an error from `main` instead.
 
-Test code is exempt from most of these via `clippy.toml` — an `unwrap` in a test
-is an assertion, and a panic is how a test reports failure.
+Test code is exempt from four of these via `clippy.toml` (`unwrap_used`,
+`expect_used`, `indexing_slicing`, `panic`) — an `unwrap` in a test is an
+assertion, and a panic is how a test reports failure.
 
 ## 3. Silence a lint at the site, with a reason
 
