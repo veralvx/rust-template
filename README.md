@@ -358,6 +358,13 @@ Also confirmed by running it, not by reading it:
   --no-build --all-systems`, Nix 2.34.6, nixpkgs-unstable of 2026-10-06,
   rust-overlay of 2026-10-07) and is `nixfmt`-clean; this is how x86_64-darwin,
   which nixpkgs-unstable has dropped, was found and removed.
+- The image prompt: all 42 combinations with it (`bin`, `both` and `workspace`
+  with the image or without, `lib`, × licence × email) generate and pass dprint,
+  nixfmt, actionlint and shellcheck, and their flakes evaluate on all three
+  systems; the image, its check and its workflow exist exactly where chosen, on
+  Linux alone. One per layout and choice passes the justfile's checks above, the
+  changelog and `cargo package`. The package's meta carries its licence and
+  homepage; `nix fmt` is nixfmt-tree, as plain nixfmt with no file reads stdin.
 - The answer validation refuses an MSRV below 1.90, a `"` or `\` in the
   description or author, a sixth keyword and an uppercase category.
 - `cargo`'s `[env]` reaches a target runner, which is how Miri's runner gets
@@ -381,15 +388,17 @@ Also confirmed by running it, not by reading it:
 What this does **not** cover -- the smoke-test workflow is what does:
 
 - **Builds under Nix.** The flake's derivations were evaluated, never built:
-  this environment reaches no binary cache.
+  this environment reaches no binary cache. So the image has not been built or
+  run here; the smoke test builds it, runs it in Docker and reads its user and
+  labels.
 - **Miri, and clippy on a newer stable.** No nightly or newer toolchain could be
   installed here, so `just miri` never ran, and lints added after 1.97 (stable
   is 1.99 at the time of writing) may fire on the starter code.
 - **The MSRV floor's toolchain** (1.90), and dprint's plugins as fetched from
   `plugins.dprint.dev`: this environment cannot reach it, so the same versions
   ran from their npm packages.
-- **cargo-dist** (`dist init`) and **GitHub Actions itself**: the workflows are
-  linted, not run.
+- **cargo-dist** (`dist init`), **GitHub Actions itself** and the **GHCR push**:
+  the workflows are linted, not run.
 
 ## Attribution
 
