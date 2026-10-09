@@ -1,20 +1,28 @@
 # A release tag (`just release`'s v<version>) publishes the binary's OCI image to GHCR, as
 # ghcr.io/<owner>/<repository>: the flake's `image` built on each Linux architecture, started
 # once, pushed per architecture, then joined under one multi-architecture tag, <version> (and
-# `latest` for a final release). The job's token pushes: no secret stored. A first push is
-# private (GHCR's default): make the package public in its settings once. The per-architecture
-# tags (<version>-amd64, <version>-arm64) stay, the multi-architecture tag's parts.
+# `latest` while it is the highest release). The job's token pushes: no secret stored. A first
+# push is private (GHCR's default): make the package public in its settings once. The
+# per-architecture tags (<version>-amd64, <version>-arm64) stay, the multi-architecture tag's
+# parts. Run by hand (workflow_dispatch), it builds and starts the image on both, pushing
+# nothing: a rehearsal before the first release.
 name: Image
 
 on:
   push:
     tags: ["v[0-9]*"]
+  workflow_dispatch:
+
+# one release at a time, in order: a later tag's `latest` is never overtaken by an earlier one's
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 permissions: {}
 
 jobs:
   build:
-    name: Build and push (${{ matrix.arch }})
+    name: Build and start (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -26,6 +34,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      description: ${{ steps.build.outputs.description }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,53 +43,71 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
 
-      - name: Build, start and push
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build and start
+        id: build
         run: |
           set -euo pipefail
-          repository="ghcr.io/${GITHUB_REPOSITORY,,}"
-          version="${GITHUB_REF_NAME#v}"
-          # the tag's version is the one Cargo.toml declares at its commit, the image's tag
-          declared="$(nix eval --raw .#image.imageTag)"
-          if [[ $declared != "$version" ]]; then
-            echo "::error::$GITHUB_REF_NAME, but Cargo.toml declares $declared" >&2
+          version="$(nix eval --raw .#image.imageTag)"
+          # a tag's version is the one Cargo.toml declares at its commit, the image's tag
+          if [[ $GITHUB_REF_TYPE == tag && $GITHUB_REF_NAME != "v$version" ]]; then
+            echo "::error::$GITHUB_REF_NAME, but Cargo.toml declares $version" >&2
             exit 1
           fi
           # streamed into docker: no compressed copy of the closure in the store
           stream="$(nix build --no-link --print-out-paths .#image.stream)"
           "$stream" | docker load
           loaded="$(nix eval --raw .#image.imageName):$version"
-          # the binary starts in the image, as its user: its own exit code is its arguments'
-          # business, but docker's 125-127 mean it never ran (the entrypoint missing or not
-          # executable there)
-          status=0
-          docker run --rm "$loaded" --help > /dev/null || status=$?
-          if (( status >= 125 && status <= 127 )); then
-            echo "::error::the image's entrypoint did not run (docker exit $status)" >&2
-            exit 1
-          fi
-          docker tag "$loaded" "$repository:$version-${{ matrix.arch }}"
+          # it starts, as its user: detached, so what it then does -- exit, complain of no
+          # arguments, serve forever -- decides nothing; docker refuses to start an entrypoint
+          # missing or not executable there
+          container="$(docker run --detach "$loaded")"
+          docker rm --force "$container" > /dev/null
+          echo "description=$(nix eval --raw .#default.meta.description)" >> "$GITHUB_OUTPUT"
+
+      - name: Push
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/${GITHUB_REPOSITORY,,}"
+          version="${GITHUB_REF_NAME#v}"
+          docker tag "$(nix eval --raw .#image.imageName):$version" "$repository:$version-$ARCH"
           docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
-          docker push "$repository:$version-${{ matrix.arch }}"
+          docker push "$repository:$version-$ARCH"
 
   publish:
     name: Multi-architecture tag
     needs: build
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       packages: write
     steps:
+      - name: Checkout
+        # every tag, to tell whether this one is the highest
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
       - name: Join the architectures
         env:
           GH_TOKEN: ${{ github.token }}
+          DESCRIPTION: ${{ needs.build.outputs.description }}
         run: |
           set -euo pipefail
           repository="ghcr.io/${GITHUB_REPOSITORY,,}"
           version="${GITHUB_REF_NAME#v}"
           tags=(--tag "$repository:$version")
-          # `latest`: a final release alone (SemVer: no pre-release, no build metadata)
-          if [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then tags+=(--tag "$repository:latest"); fi
+          # `latest`: the highest final release (SemVer: no pre-release, no build metadata), so a
+          # patch to an older line leaves it where it is
+          highest="$(git tag --list 'v[0-9]*' | sed 's/^v//' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
+          if [[ $version == "$highest" ]]; then tags+=(--tag "$repository:latest"); fi
           docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
+          # a multi-architecture image's description is its index's annotation (GHCR's docs)
           docker buildx imagetools create "${tags[@]}" \
+            --annotation "index:org.opencontainers.image.description=$DESCRIPTION" \
             "$repository:$version-amd64" "$repository:$version-arm64"

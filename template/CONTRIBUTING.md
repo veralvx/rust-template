@@ -112,7 +112,8 @@ than the MSRV can still fire, and an MSRV and a Nix job.
 git-cliff, commits, tags `v<version>` (the first release `v0.1.0`), pushes the
 commit and the tag together and runs `cargo publish --workspace`.{% if project_kind != "lib" and container_image %} The tag runs
 `image.yml`: the binary's OCI image to GHCR, from the flake's `image` (`nix
-build .#image` builds it here).{% endif %} Before the first one:
+build .#image` builds it here).{% endif %} Before the
+first one:
 
 - `cargo login` with a crates.io token -- otherwise the tag is pushed and
   nothing is published; run `cargo publish --workspace` again once logged in.

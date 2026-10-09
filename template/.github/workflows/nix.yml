@@ -1,9 +1,11 @@
 name: Nix
 
-# The flake's checks (flake.nix): clippy, rustfmt, rustdoc and the tests,
-# built in the sandbox with the toolchain rust-toolchain.toml pins, on this
-# runner's system; and every system's outputs evaluated, nothing built, so a
-# break on a system no runner here builds still shows. Until flake.lock is
+# The flake's checks (flake.nix): clippy, rustfmt, rustdoc and the tests (and
+# the image, with one), built in the sandbox with the toolchain
+# rust-toolchain.toml pins, on x86_64 and aarch64 Linux -- the image's two
+# architectures, so neither is first built at a release; and every system's
+# outputs evaluated, nothing built, so a break on a system no runner here
+# builds (Apple silicon) still shows. Until flake.lock is
 # committed, each run locks the inputs afresh -- commit it after the first
 # `nix develop`.
 
@@ -38,8 +40,12 @@ permissions:
 
 jobs:
   flake-check:
-    name: nix flake check
-    runs-on: ubuntu-latest
+    name: nix flake check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,4 +58,5 @@ jobs:
         run: nix flake check --print-build-logs
 
       - name: Every system, evaluated
+        if: matrix.os == 'ubuntu-latest'
         run: nix flake check --no-build --all-systems

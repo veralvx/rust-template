@@ -119,9 +119,12 @@
               meta = {
                 inherit (cargoPackage) description;
                 homepage = repository;
-                # the SPDX expression's identifiers, its operators and parentheses aside
+                # the SPDX expression's licence identifiers: its operators, parentheses and
+                # `WITH` exceptions aside
                 license = map lib.getLicenseFromSpdxId (
-                  lib.subtractLists [ "" "AND" "OR" ] (lib.filter lib.isString (builtins.split "[ ()]+" license))
+                  lib.subtractLists [ "" "AND" "OR" ] (
+                    lib.filter lib.isString (builtins.split "[ ()]+|WITH [^ ()]+" license)
+                  )
                 );
                 mainProgram = pname;
               };

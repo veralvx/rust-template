@@ -210,10 +210,11 @@ with `#[expect(lint, reason = "...")]`.
   Conventional Commits: every commit (no tag needed), and a pull request's title,
   which a squash merge makes the commit.
 - `nix.yml` — `nix flake check`: the flake's clippy, rustfmt, rustdoc and test
-  derivations built (the image too, with it), and every system it declares
-  evaluated.
+  derivations built (the image too, with it) on x86_64 and aarch64 Linux, and
+  every system it declares evaluated.
 - `image.yml` (with the image) — a release tag pushes the binary's OCI image to
-  GHCR, for amd64 and arm64, after starting it.
+  GHCR, for amd64 and arm64, after starting it; by hand, a rehearsal that
+  pushes nothing.
 
 Every action is pinned to a commit, its version in a comment; Dependabot moves
 them. Its Cargo bumps are `build(deps)` commits, which enter the changelog, and
@@ -239,7 +240,9 @@ once) and every tool `just checks` and `just release` call; `just miri` enters
 the flake's nightly `miri` shell itself. `nix flake check` builds clippy,
 rustfmt, rustdoc and the tests offline in the sandbox; `nix build` the binary
 (every layout but `lib`). The systems are those the flake's `nixos-unstable`
-input supports: x86_64 and aarch64 Linux, Apple silicon.
+input supports: x86_64 and aarch64 Linux, Apple silicon. The template ships no
+`flake.lock` -- it would age in the template; the first `nix` command writes
+one, and the generated README says to commit it.
 
 With `container_image`, the flake has an `image` on Linux:
 `dockerTools.buildLayeredImage` of the binary's package -- its closure alone, no
@@ -249,9 +252,10 @@ base image and no `/bin/sh`, run as `nobody`, labelled for GHCR. `nix build
 closure. `image.yml`, on a release tag, checks the tag against Cargo.toml's
 version, streams the image into Docker on amd64 and arm64, starts it, pushes
 each, and joins them as `ghcr.io/<owner>/<repository>:<version>` (`latest` too
-for a final release), with the job's token. The
-template ships no `flake.lock` -- it would age in the template; the first `nix`
-command writes one, and the generated README says to commit it.
+while it is the highest release), with the job's token; run by hand, it builds
+and starts the image on both, pushing nothing. The image holds no CA
+certificates: a binary that verifies TLS against the system's needs
+`contents = [ pkgs.cacert ]` and `SSL_CERT_FILE` set in `config.Env`.
 
 `release.yml` is deliberately **not** included. It is generated from
 `dist-workspace.toml` by `dist init`, so run that once in the new project and
