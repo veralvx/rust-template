@@ -368,6 +368,11 @@ Also confirmed by running it, not by reading it:
   Linux alone. One per layout and choice passes the justfile's checks above, the
   changelog and `cargo package`. The package's meta carries its licence and
   homepage; `nix fmt` is nixfmt-tree, as plain nixfmt with no file reads stdin.
+- Docker Hub: image.yml's push and multi-architecture steps, run against a
+  recording `docker`, make with no Docker Hub settings the very calls they made
+  before it; with both, each architecture pushed to both registries and each
+  index made from its own; with one alone, a name Docker would refuse, or a
+  dotted repository name, they stop after GHCR's login, before any push.
 - The answer validation refuses an MSRV below 1.90, a `"` or `\` in the
   description or author, a sixth keyword and an uppercase category.
 - `cargo`'s `[env]` reaches a target runner, which is how Miri's runner gets
