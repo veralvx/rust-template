@@ -50,8 +50,8 @@ Before you start, read [AGENTS.md](AGENTS.md). It documents the lint policy —
 which lints are on, why, and what to do when one fires — and applies to human
 and AI-assisted contributions alike.
 
-The short version: this crate denies the operations that can end the process
-without returning an error (`unwrap`, `expect`, `panic!`, indexing, unchecked
+The short version: this crate denies the operations that can panic, abort or
+silently truncate (`unwrap`, `expect`, `panic!`, indexing, unchecked
 arithmetic, `as`, `exit`). Reach for the total counterpart, or annotate the site
 with `#[expect(lint, reason = "...")]` explaining why the lint is wrong there.
 
@@ -91,9 +91,12 @@ just checks
 That runs nine recipes in order: `cargo check`, the test suite, Miri,
 `cargo clippy` with warnings denied, `cargo fmt --check`, a docs build with
 warnings denied, `dprint check`, `cog check`, and `cargo audit` -- the set the
-workflows under `.github/workflows/` run, on the toolchain `rust-toolchain.toml`
-pins. CI also runs clippy and rustdoc on the latest stable, where a lint newer
-than the MSRV can still fire, and an MSRV and a Nix job.
+workflows under `.github/workflows/` run, here on the toolchain
+`rust-toolchain.toml` pins (Miri on nightly). CI's Rust jobs (check, test,
+clippy, fmt, docs) run on the latest stable, where a lint newer than the MSRV
+can still fire; the pinned toolchain runs there in the MSRV job (check, test)
+and in `nix.yml`, the flake's checks -- clippy, rustfmt, rustdoc and the tests
+in the Nix sandbox -- which `nix flake check` runs locally.
 
 ## Creating a Pull Request
 

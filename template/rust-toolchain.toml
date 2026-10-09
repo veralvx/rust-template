@@ -1,6 +1,6 @@
 # Pinned to the crate's MSRV, so `cargo clippy` locally lints against
-# the oldest toolchain the project claims to support. CI additionally
-# runs clippy on stable -- the two catch different things.
+# the oldest toolchain the project claims to support. CI's clippy job runs
+# on stable, nix.yml's on this one -- the two catch different things.
 [toolchain]
 channel = "{{msrv}}"
 components = ["clippy", "rustfmt"]

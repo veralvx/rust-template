@@ -131,8 +131,9 @@ only.
 
 This repository uses [`just`](https://github.com/casey/just) to mirror CI
 locally. `just checks` runs the nine checks the workflows run, on the toolchain
-`rust-toolchain.toml` pins (CI also runs clippy and rustdoc on the latest
-stable, where a newer lint can still fire):
+`rust-toolchain.toml` pins (CI runs check, test, clippy, fmt and docs on the
+latest stable, where a newer lint can still fire, and the pinned toolchain in
+its MSRV and Nix jobs):
 
 ```sh
 just checks

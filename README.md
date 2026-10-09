@@ -181,8 +181,8 @@ wrong for a normal crate. `just clippy` and CI run
 build; the difference shows only in a bare `cargo clippy` (a warning or an
 error) -- `cargo check` runs no clippy lint at all.
 
-On top of the groups, the operations that end a process without returning an
-error are denied by name: `unwrap_used`, `expect_used`, `panic`,
+On top of the groups, the operations that panic, abort or silently truncate are
+denied by name: `unwrap_used`, `expect_used`, `panic`,
 `panic_in_result_fn`, `unreachable`, `unimplemented`, `todo`, `exit`,
 `indexing_slicing`, `string_slice`, `arithmetic_side_effects`,
 `unchecked_time_subtraction`, and `as_conversions`.

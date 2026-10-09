@@ -66,9 +66,10 @@ audit:
     cargo audit
 
 # The checks CI's workflows run, one after another, on the toolchain
-# rust-toolchain.toml pins (the MSRV). CI runs clippy and rustdoc on the
-# latest stable too, where a lint newer than the MSRV can still fire, and
-# adds the MSRV and Nix jobs.
+# rust-toolchain.toml pins (the MSRV; Miri on nightly). CI runs check,
+# test, clippy, fmt and docs on the latest stable, where a lint newer than
+# the MSRV can still fire; the pinned toolchain runs there in the MSRV job
+# and in nix.yml (`nix flake check`).
 #
 # `just` takes only the LAST comment line above a recipe as its doc
 # string, which would show as a fragment in `just --list`; the explicit

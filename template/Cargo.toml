@@ -141,18 +141,21 @@ nursery = { level = "deny", priority = -1 }
 restriction = { level = "warn", priority = -1 }
 
 # Three names below are newer than the template's MSRV floor of Rust
-# 1.90: `unchecked_time_subtraction` exists from 1.92, `inline_trait_bounds`
-# and `inline_modules` from 1.97. On an older toolchain they are simply
+# 1.90: `unchecked_time_subtraction` is 1.92's name for pedantic's
+# `unchecked_duration_subtraction` (`pedantic` denies `Instant - Duration`
+# below 1.92 too; `Duration - Duration` is 1.92's), `inline_trait_bounds`
+# and `inline_modules` are 1.97's. On an older toolchain they are simply
 # unknown: clippy prints `unknown lint` and carries on (exit code 0), and
 # rustc ignores `clippy::` names it does not recognise entirely, so `cargo
 # check` and `cargo test` stay silent. Nothing breaks below 1.97 -- you
 # just see the warnings locally, because `rust-toolchain.toml` pins clippy
 # to this crate's MSRV. CI runs clippy on stable, where all three exist.
 
-# --- panics and other silent aborts: denied outright -----------------
-# Every one of these is a way for the program to stop without returning
-# an error the caller could have handled. In a library they become the
-# caller's crash; in a binary they become an exit code and no message.
+# --- panics, aborts and silent truncation: denied outright -----------
+# Every one of these is a way for the program to stop, or a value to
+# change, without an error the caller could have handled: a panic is a
+# library caller's crash, or a binary's exit code with no message; a
+# truncated value, a wrong answer.
 # Handle the case, or annotate the site with `#[expect(..., reason)]`.
 # `clippy.toml` exempts test code from four of them: `unwrap_used`,
 # `expect_used`, `indexing_slicing` and `panic`.
