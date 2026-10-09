@@ -213,8 +213,8 @@ with `#[expect(lint, reason = "...")]`.
   derivations built (the image too, with it) on x86_64 and aarch64 Linux, and
   every system it declares evaluated.
 - `image.yml` (with the image) — a release tag pushes the binary's OCI image to
-  GHCR, for amd64 and arm64, after starting it; by hand, a rehearsal that
-  pushes nothing.
+  GHCR, for amd64 and arm64, after starting it; by hand on a branch, a rehearsal
+  that pushes nothing.
 
 Every action is pinned to a commit, its version in a comment; Dependabot moves
 them. Its Cargo bumps are `build(deps)` commits, which enter the changelog, and
@@ -253,7 +253,8 @@ closure. `image.yml`, on a release tag, checks the tag against Cargo.toml's
 version, streams the image into Docker on amd64 and arm64, starts it, pushes
 each, and joins them as `ghcr.io/<owner>/<repository>:<version>` (`latest` too
 while it is the highest release), with the job's token; run by hand, it builds
-and starts the image on both, pushing nothing. The image holds no CA
+and starts the image on both, pushing nothing (on a tag, it publishes that
+release again). The image holds no CA
 certificates: a binary that verifies TLS against the system's needs
 `contents = [ pkgs.cacert ]` and `SSL_CERT_FILE` set in `config.Env`.
 

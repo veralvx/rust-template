@@ -4,19 +4,14 @@
 # `latest` while it is the highest release). The job's token pushes: no secret stored. A first
 # push is private (GHCR's default): make the package public in its settings once. The
 # per-architecture tags (<version>-amd64, <version>-arm64) stay, the multi-architecture tag's
-# parts. Run by hand (workflow_dispatch), it builds and starts the image on both, pushing
-# nothing: a rehearsal before the first release.
+# parts. Run by hand (workflow_dispatch) on a branch, it builds and starts the image on both,
+# pushing nothing: a rehearsal before the first release; on a tag, it publishes that release again.
 name: Image
 
 on:
   push:
     tags: ["v[0-9]*"]
   workflow_dispatch:
-
-# one release at a time, in order: a later tag's `latest` is never overtaken by an earlier one's
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
 
 permissions: {}
 
@@ -60,7 +55,7 @@ jobs:
           # it starts, as its user: detached, so what it then does -- exit, complain of no
           # arguments, serve forever -- decides nothing; docker refuses to start an entrypoint
           # missing or not executable there
-          container="$(docker run --detach "$loaded")"
+          container="$(docker run --detach --pull never "$loaded")"
           docker rm --force "$container" > /dev/null
           echo "description=$(nix eval --raw .#default.meta.description)" >> "$GITHUB_OUTPUT"
 
@@ -104,7 +99,7 @@ jobs:
           # `latest`: the highest final release (SemVer: no pre-release, no build metadata), so a
           # patch to an older line leaves it where it is
           highest="$(git tag --list 'v[0-9]*' | sed 's/^v//' \
-            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
+            | { grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -n 1)"
           if [[ $version == "$highest" ]]; then tags+=(--tag "$repository:latest"); fi
           docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
           # a multi-architecture image's description is its index's annotation (GHCR's docs)
