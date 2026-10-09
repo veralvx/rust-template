@@ -3,12 +3,19 @@ name: Dependabot Auto-Merge
 # Required repository settings (do these once):
 # 1. Settings → General → Allow auto-merge          ← enable
 # 2. Settings → Branches → Branch protection rule on main:
-#      - Require a pull request before merging
+#      - Require a pull request before merging, with no required approvals
+#        (one would hold every bump for a person)
 #      - Require status checks to pass before merging (select the real CI
 #        jobs: Rust CI's, the Conventional Commits and dprint checks, Nix)
 #
 # The `permissions:` below are all this workflow's token needs; the
-# repository's default token permissions can stay read-only.
+# repository's default token permissions can stay read-only, and nothing
+# here creates or approves a pull request. Leave the rule's bypass to
+# admins allowed: `just release` pushes its commit and tag to main.
+#
+# A merge this token makes starts no workflow run (GitHub's rule for
+# GITHUB_TOKEN's events): main runs nothing for it, its pull request's
+# required checks are what gated it.
 #
 # Without step 2 this workflow merges dependency bumps that no CI job
 # ever gated. Auto-merge waits for *required* checks, and a repository

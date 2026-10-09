@@ -25,7 +25,7 @@ updates:
     commit-message:
       prefix: "build"
       include: "scope"
-    labels:
+    labels: # each created once (Issues > Labels): one the repository lacks is ignored
       - "dependencies"
       - "rust"
     groups:
@@ -54,7 +54,7 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
-    labels:
+    labels: # each created once (Issues > Labels): one the repository lacks is ignored
       - "dependencies"
       - "actions"
     groups:

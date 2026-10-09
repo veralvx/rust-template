@@ -15,6 +15,11 @@ permissions:
 # for public repositories but requires GitHub Advanced Security on a
 # private one. On a private repo without it, this job fails rather than
 # skipping -- delete the workflow or enable the feature.
+#
+# Cargo.lock is reviewed for licences and advisories; the actions for
+# licences in effect: advisories match actions by semantic version alone,
+# not the commits these are pinned to ("Dependency graph supported package
+# ecosystems").
 jobs:
   dependency-review:
     name: License & Security Check
