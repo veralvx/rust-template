@@ -176,10 +176,10 @@ LICENSE-MIT / LICENSE-APACHE (a workspace member carries its own copies)
 `[lints.rust]` carries 27 lints. `[lints.clippy]` enables four groups —
 `pedantic` and `nursery` at **deny**, `restriction` and `cargo` at warn — and
 then turns off, one at a time and with a written reason, the lints that are
-wrong for a normal crate. `just clippy` and CI run `cargo clippy --all-targets
--- -D warnings`, so warn and deny both fail the build; the difference shows only
-in a bare `cargo clippy` (a warning or an error) -- `cargo check` runs no clippy
-lint at all.
+wrong for a normal crate. `just clippy` and CI run
+`cargo clippy --all-targets -- -D warnings`, so warn and deny both fail the
+build; the difference shows only in a bare `cargo clippy` (a warning or an
+error) -- `cargo check` runs no clippy lint at all.
 
 On top of the groups, the operations that end a process without returning an
 error are denied by name: `unwrap_used`, `expect_used`, `panic`,
@@ -254,9 +254,9 @@ version, streams the image into Docker on amd64 and arm64, starts it, pushes
 each, and joins them as `ghcr.io/<owner>/<repository>:<version>` (`latest` too
 while it is the highest release), with the job's token; run by hand, it builds
 and starts the image on both, pushing nothing (on a tag, it publishes that
-release again). The image holds no CA
-certificates: a binary that verifies TLS against the system's needs
-`contents = [ pkgs.cacert ]` and `SSL_CERT_FILE` set in `config.Env`.
+release again). The image holds no CA certificates: a binary that verifies TLS
+against the system's needs `contents = [ pkgs.cacert ]` and `SSL_CERT_FILE` set
+in `config.Env`.
 
 `release.yml` is deliberately **not** included. It is generated from
 `dist-workspace.toml` by `dist init`, so run that once in the new project and
