@@ -34,9 +34,10 @@ Then, in whichever order suits you:
 - After the first release, make the image public: GHCR publishes a new package
   as private (its page, Package settings → Change visibility).
 - To publish the image to Docker Hub too: create its repository there, then set
-  the repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (an access
-  token that writes) -- and the variable `DOCKERHUB_REPOSITORY`
-  (`namespace/name`) unless it is `<username>/{{project-name}}`.
+  the repository variable `DOCKERHUB_USERNAME` and the secret `DOCKERHUB_TOKEN`
+  (an access token that writes) -- and the variable `DOCKERHUB_REPOSITORY`
+  (`namespace/name`) unless it is `<username>/<this repository's name>`. A
+  Docker Hub failure holds the GHCR release back too.
 {% endif -%}
 - Run `just checks` once to confirm your toolchain is complete: a step that
   stops on a missing command names it -- `just`, `jq`, `dprint`, `cog`,

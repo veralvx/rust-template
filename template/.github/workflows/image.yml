@@ -3,8 +3,9 @@
 # once, pushed per architecture, then joined under one multi-architecture tag, <version> (and
 # `latest` while it is the highest release). The job's token pushes: no secret stored. A first
 # push is private (GHCR's default): make the package public in its settings once. Docker Hub
-# too, the same tags, once the secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (an access token
-# that writes) are set: as vars.DOCKERHUB_REPOSITORY, else <username>/<repository>. The
+# too, the same tags, once vars.DOCKERHUB_USERNAME and secrets.DOCKERHUB_TOKEN (an access
+# token that writes) are set: as vars.DOCKERHUB_REPOSITORY, else <username>/<repository>. A
+# Docker Hub failure holds GHCR's release back too; a re-run, once fixed, completes both. The
 # per-architecture tags (<version>-amd64, <version>-arm64) stay, the multi-architecture tag's
 # parts. Run by hand (workflow_dispatch) on a branch, it builds and starts the image on both,
 # pushing nothing: a rehearsal before the first release; on a tag, it publishes that release again.
@@ -65,9 +66,10 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
-          # Docker Hub too, when both are set (.github/image-registries.sh); secrets are empty
-          # when unset, and no `if:` can read them
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          # Docker Hub too, when both are set (.github/image-registries.sh): an unset variable or
+          # secret is empty, and no `if:` can read a secret. The username is a variable, as in
+          # Docker's guide: a secret would be masked wherever it appears, GHCR's paths included
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY }}
           ARCH: ${{ matrix.arch }}
@@ -76,10 +78,11 @@ jobs:
           repositories="$(.github/image-registries.sh)"
           version="${GITHUB_REF_NAME#v}"
           loaded="$(nix eval --raw .#image.imageName):$version"
-          while read -r repository; do
+          # the list on its own descriptor: no command in the loop can read it away
+          while read -r repository <&3; do
             docker tag "$loaded" "$repository:$version-$ARCH"
             docker push "$repository:$version-$ARCH"
-          done <<< "$repositories"
+          done 3<<< "$repositories"
 
   publish:
     name: Multi-architecture tag
@@ -99,7 +102,7 @@ jobs:
       - name: Join the architectures
         env:
           GH_TOKEN: ${{ github.token }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY }}
           DESCRIPTION: ${{ needs.build.outputs.description }}
@@ -114,10 +117,10 @@ jobs:
           # each repository's index from its own pushes: imagetools create's sources must be in
           # the registry it writes to (its docs). The description is the index's annotation, as
           # GHCR reads it for a multi-architecture image
-          while read -r repository; do
+          while read -r repository <&3; do
             tags=(--tag "$repository:$version")
             if [[ $version == "$highest" ]]; then tags+=(--tag "$repository:latest"); fi
             docker buildx imagetools create "${tags[@]}" \
               --annotation "index:org.opencontainers.image.description=$DESCRIPTION" \
               "$repository:$version-amd64" "$repository:$version-arm64"
-          done <<< "$repositories"
+          done 3<<< "$repositories"

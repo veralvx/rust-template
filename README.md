@@ -253,12 +253,13 @@ copy of the closure. `image.yml`, on a release tag, checks the tag against
 Cargo.toml's version, streams the image into Docker on amd64 and arm64, starts
 it, pushes each, and joins them as `ghcr.io/<owner>/<repository>:<version>`
 (`latest` too while it is the highest release), with the job's token -- and to
-Docker Hub too, under the same tags, once the secrets `DOCKERHUB_USERNAME` and
-`DOCKERHUB_TOKEN` are set (`.github/image-registries.sh`); run by hand, it
-builds and starts the image on both, pushing nothing (on a tag, it publishes
-that release again). The image holds no CA certificates: a binary that verifies
-TLS against the system's needs `contents = [ pkgs.cacert ]` and `SSL_CERT_FILE`
-set in `config.Env`.
+Docker Hub too, under the same tags, once the variable `DOCKERHUB_USERNAME` and
+the secret `DOCKERHUB_TOKEN` are set (`.github/image-registries.sh`; a Docker
+Hub failure holds the GHCR release back too); run by hand, it builds and starts
+the image on both, pushing nothing (on a tag, it publishes that release again).
+The image holds no CA certificates: a binary that verifies TLS against the
+system's needs `contents = [ pkgs.cacert ]` and `SSL_CERT_FILE` set in
+`config.Env`.
 
 `release.yml` is deliberately **not** included. It is generated from
 `dist-workspace.toml` by `dist init`, so run that once in the new project and
