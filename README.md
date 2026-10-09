@@ -393,20 +393,18 @@ Also confirmed by running it, not by reading it:
 - The workflows pass actionlint 1.7.12 with shellcheck 0.9.0, and the justfile's
   shell recipes and the hooks pass shellcheck.
 
-What this does **not** cover -- the smoke-test workflow is what does:
+The smoke test on GitHub, at a097321 (2026-10-09), covered what this environment cannot: every
+layout built and checked under Nix (`nix flake check`, `nix build`), the `bin` and `both` images
+loaded into Docker and run, their user and labels read; clippy on stable 1.99 and `just miri` on
+nightly 1.101 passing on the starter code; dprint's plugins fetched from `plugins.dprint.dev`. Its
+one failure was its own: the `workspace` image was expected to print `bin`'s greeting, where its
+`main.rs` calls the library as `both`'s does -- fixed, not yet re-run.
 
-- **Builds under Nix.** The flake's derivations were evaluated, never built:
-  this environment reaches no binary cache. So the image has not been built or
-  run here; the smoke test builds it, runs it in Docker and reads its user and
-  labels.
-- **Miri, and clippy on a newer stable.** No nightly or newer toolchain could be
-  installed here, so `just miri` never ran, and lints added after 1.97 (stable
-  is 1.99 at the time of writing) may fire on the starter code.
-- **The MSRV floor's toolchain** (1.90), and dprint's plugins as fetched from
-  `plugins.dprint.dev`: this environment cannot reach it, so the same versions
-  ran from their npm packages.
-- **cargo-dist** (`dist init`), **GitHub Actions itself** and the **GHCR push**:
-  the workflows are linted, not run.
+What neither covers:
+
+- **The MSRV floor's toolchain** (1.90): the smoke test generates with 1.97.
+- **cargo-dist** (`dist init`), and the generated project's own workflows on GitHub -- its
+  GHCR and Docker Hub pushes included: they are linted, not run.
 
 ## Attribution
 

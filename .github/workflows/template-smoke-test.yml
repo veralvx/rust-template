@@ -332,7 +332,7 @@ jobs:
           stream="$(nix build --no-link --print-out-paths .#image.stream)"
           "$stream" | docker load
           case ${{ matrix.kind }} in
-            both) expected="demo: 2 + 3 = 5" ;;
+            both | workspace) expected="demo: 2 + 3 = 5" ;; # main.rs calls the library
             *) expected="Hello from demo!" ;;
           esac
           test "$(docker run --rm demo:0.1.0)" = "$expected"
