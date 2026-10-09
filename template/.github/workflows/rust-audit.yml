@@ -1,3 +1,5 @@
+# GitHub disables a public repository's schedule after 60 days without activity ("Events that
+# trigger workflows"): Dependabot alerts, the repository's setting, watch Cargo.lock without one.
 name: Security audit (cargo-audit)
 
 on:

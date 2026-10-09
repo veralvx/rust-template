@@ -32,10 +32,11 @@ permissions:
 jobs:
   dependabot:
     runs-on: ubuntu-latest
-    # Use user.login (the PR author), not github.actor (whoever triggered
-    # this run).  github.actor can change on re-runs or force-pushes,
-    # whereas user.login is always the account that opened the PR.
+    # Use user.login (the PR author), not github.actor (whoever caused the
+    # event: a person pushing to Dependabot's branch too), whereas user.login
+    # is always the account that opened the PR.
     # Ref: https://docs.github.com/en/code-security/dependabot/working-with-dependabot/automating-dependabot-with-github-actions
+    # github.actor: https://docs.github.com/en/actions/reference/workflows-and-actions/contexts
     #
     # To stop forks from auto-merging their own bumps, add a repository
     # pin to this condition:
@@ -53,7 +54,7 @@ jobs:
         # update-type only emits version-update:semver-{patch,minor,major}.
         # There is NO "security:" prefix; security updates carry the same
         # semver labels.  To gate on security status, enable alert-lookup
-        # (requires a PAT) and check steps.metadata.outputs.alert-state.
+        # (a PAT or an App's token) and check steps.metadata.outputs.alert-state.
         if: >-
           contains(
             fromJSON('["version-update:semver-patch", "version-update:semver-minor"]'),
