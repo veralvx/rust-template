@@ -100,11 +100,13 @@ jobs:
                 dir="$out/$name"
                 want=absent
                 if [ "$kind" != lib ] && [ -n "$email" ]; then want=present; fi
-                have=$([ -f "$dir/.github/workflows/image.yml" ] && echo present || echo absent)
-                if [ "$have" != "$want" ]; then
-                  echo "::error::$dir/.github/workflows/image.yml is $have, expected $want" >&2
-                  exit 1
-                fi
+                for file in .github/workflows/image.yml .github/image-registries.sh; do
+                  have=$([ -f "$dir/$file" ] && echo present || echo absent)
+                  if [ "$have" != "$want" ]; then
+                    echo "::error::$dir/$file is $have, expected $want" >&2
+                    exit 1
+                  fi
+                done
                 RUSTUP_TOOLCHAIN=stable cargo metadata --no-deps --format-version 1 \
                   --manifest-path "$dir/Cargo.toml" > /dev/null
                 # each package's licence files: the root, and a workspace's members
@@ -220,6 +222,13 @@ jobs:
           refused git push --quiet "$RUNNER_TEMP/hooks.git" HEAD:main
           git reset --quiet --hard HEAD~2
           git push --quiet "$RUNNER_TEMP/hooks.git" HEAD:main
+
+      # the hooks and image.yml's script: no check in the generated project reads them
+      - name: shellcheck
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          shopt -s nullglob
+          shellcheck .githooks/* .github/*.sh
 
       - name: The justfile's checks (the pinned MSRV toolchain)
         working-directory: ${{ runner.temp }}/generated/demo

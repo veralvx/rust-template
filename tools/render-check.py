@@ -376,9 +376,10 @@ def main() -> int:
                 if present != wanted:
                     fail(f"{label}: src/{name} present={present}, wanted={wanted}")
 
-        # The image: its workflow and the flake's output, both or neither.
-        if matches_any(".github/workflows/image.yml", ignored) == image:
-            fail(f"{label}: image.yml {'missing' if image else 'kept'}")
+        # The image: its workflow, its script and the flake's output, all or none.
+        for name in (".github/workflows/image.yml", ".github/image-registries.sh"):
+            if matches_any(name, ignored) == image:
+                fail(f"{label}: {name} {'missing' if image else 'kept'}")
         if ("dockerTools" in outputs["flake.nix"]) != image:
             fail(f"{label}: flake.nix's image does not match container_image")
 

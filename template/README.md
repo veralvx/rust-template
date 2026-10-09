@@ -33,6 +33,10 @@ Then, in whichever order suits you:
 {% if project_kind != "lib" and container_image -%}
 - After the first release, make the image public: GHCR publishes a new package
   as private (its page, Package settings → Change visibility).
+- To publish the image to Docker Hub too: create its repository there, then set
+  the repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (an access
+  token that writes) -- and the variable `DOCKERHUB_REPOSITORY`
+  (`namespace/name`) unless it is `<username>/{{project-name}}`.
 {% endif -%}
 - Run `just checks` once to confirm your toolchain is complete: a step that
   stops on a missing command names it -- `just`, `jq`, `dprint`, `cog`,

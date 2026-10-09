@@ -137,11 +137,12 @@ ignore = [
   "dist-workspace.toml",
   "crates",
   ".github/workflows/image.yml",
+  ".github/image-registries.sh",
 ]
 
-# No image: no workflow to publish one (the flake's output is Liquid's).
+# No image: no workflow to publish one, nor its script (the flake's output is Liquid's).
 [conditional.'project_kind != "lib" && !container_image']
-ignore = [".github/workflows/image.yml"]
+ignore = [".github/workflows/image.yml", ".github/image-registries.sh"]
 
 # A binary-only crate has no public API to integration-test through.
 [conditional.'project_kind == "bin"']
