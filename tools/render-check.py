@@ -75,12 +75,26 @@ BASE_VARS = {
     "categories": "development-tools, command-line-utilities",
 }
 
+# container_image is asked for a layout with a binary alone (a conditional
+# placeholder): a lib leaves it undefined -- or has it given anyway on the
+# command line (`-d`), which cargo-generate passes through unasked.
+IMAGES = {"bin": (True, False), "lib": (None, True), "both": (True, False), "workspace": (True, False)}
 CASES = [
     {"project_kind": k, "license": lic, **extra}
+    | ({} if image is None else {"container_image": image})
     for k in ("bin", "lib", "both", "workspace")
+    for image in IMAGES[k]
     for lic in ("MIT OR Apache-2.0", "MIT", "Apache-2.0")
     for extra in ({}, {"author_email": ""})
 ]
+
+
+def holds(expr: str, vars_: dict[str, object]) -> bool:
+    """A conditional's Rhai expression -- comparisons, `&&`, `||`, `!` -- over the answers."""
+    python = expr.replace("&&", " and ").replace("||", " or ")
+    python = re.sub(r"!(?!=)", " not ", python)
+    names = {k.replace("-", "_"): v for k, v in vars_.items()}
+    return bool(eval(python, {"__builtins__": {}}, names))  # noqa: S307 - our own config's
 
 # `{{project-name}}` is valid for the Rust liquid crate but the dash
 # parses as subtraction in python-liquid, so rewrite the identifier
@@ -102,8 +116,13 @@ def matches_any(rel: str, globs: list[str]) -> bool:
 def main() -> int:
     cfg = tomllib.loads(CONFIG.read_text())
     excluded = cfg["template"].get("exclude", [])
-    placeholders = cfg["placeholders"]
     conditionals = cfg.get("conditional", {})
+    # the prompts, those asked under a condition among them
+    placeholders = cfg["placeholders"] | {
+        name: spec
+        for section in conditionals.values()
+        for name, spec in section.get("placeholders", {}).items()
+    }
     env = Environment()
     failures: list[str] = []
 
@@ -239,22 +258,24 @@ def main() -> int:
     for case in CASES:
         vars_ = {**BASE_VARS, **case}
         vars_["project_name"] = vars_["project-name"]
-        label = f"{case['project_kind']}/{case['license']}" + (
-            "/no-email" if case.get("author_email") == "" else ""
+        image = case.get("container_image") is True and case["project_kind"] != "lib"
+        label = (
+            f"{case['project_kind']}/{case['license']}"
+            + ("/no-email" if case.get("author_email") == "" else "")
+            + {None: "", True: "/image", False: "/no-image"}[case.get("container_image")]
         )
         print(f"== render {label}")
 
         ignored: list[str] = []
         for expr, section in conditionals.items():
-            # The conditions used here are all `key == "value"`.
-            m = re.fullmatch(r"(\w+)\s*==\s*\"([^\"]+)\"", expr)
-            if not m:
-                fail(f"harness cannot evaluate conditional {expr!r}")
-                continue
-            if str(vars_.get(m.group(1))) == m.group(2):
-                ignored.extend(section.get("ignore", []))
+            try:
+                if holds(expr, vars_):
+                    ignored.extend(section.get("ignore", []))
+            except Exception as exc:  # noqa: BLE001 - report and continue
+                fail(f"harness cannot evaluate conditional {expr!r}: {exc}")
 
         rendered_count = 0
+        outputs: dict[str, str] = {}
         for path in files:
             rel = str(path.relative_to(TEMPLATE))
             # Deliberately NOT skipping `ignored` files, though cargo-generate
@@ -273,6 +294,7 @@ def main() -> int:
                 if leftovers:
                     fail(f"{rel}: unexpanded template syntax: {leftovers[:3]}")
                 rendered_count += 1
+            outputs[rel] = out
 
             suffix = path.suffix
             try:
@@ -353,6 +375,12 @@ def main() -> int:
                 present = name in src and not matches_any(f"src/{name}", ignored)
                 if present != wanted:
                     fail(f"{label}: src/{name} present={present}, wanted={wanted}")
+
+        # The image: its workflow and the flake's output, both or neither.
+        if matches_any(".github/workflows/image.yml", ignored) == image:
+            fail(f"{label}: image.yml {'missing' if image else 'kept'}")
+        if ("dockerTools" in outputs["flake.nix"]) != image:
+            fail(f"{label}: flake.nix's image does not match container_image")
 
         print(f"  rendered {rendered_count} files, manifest checks done")
 

@@ -8,15 +8,17 @@ name: Template smoke test
 #   render-check   tools/render-check.py: every prompt combination renders
 #                  and parses; the config invariants hold
 #   combinations   all 24 kind x licence x email answers through the real
-#                  cargo-generate: each manifest parses, each licence file is
-#                  where its choice puts it, dprint passes
+#                  cargo-generate (no email, no image): each manifest parses,
+#                  each licence file is where its choice puts it, the image's
+#                  workflow is there or not, dprint passes
 #   generate       cargo-generate; its git hooks, installed, refuse an
 #                  unformatted file, a bad message and a pushed revert; then
 #                  the generated justfile's recipes (clippy on the pinned MSRV
 #                  and on stable, Miri on nightly), dprint, cog, git-cliff and
 #                  `cargo package`; for the workspace, two `just release`s
 #                  against a bare remote
-#   nix            the generated flake.nix: `nix flake check`, `nix build`
+#   nix            the generated flake.nix: `nix flake check` (the image among
+#                  its checks), `nix build`, and the image run in Docker
 
 on:
   push:
@@ -82,13 +84,23 @@ jobs:
             for licence in "MIT OR Apache-2.0" MIT Apache-2.0; do
               for email in jane@example.com ""; do
                 name="c-$kind-$(tr -cd 'a-z0-9' <<< "${licence,,}")${email:+-e}"
+                # the image: its default with the email, declined without (a lib is never asked)
+                image=()
+                if [ "$kind" != lib ] && [ -z "$email" ]; then image=(-d container_image=false); fi
                 cargo generate --path "$GITHUB_WORKSPACE" template --name "$name" \
-                  --destination "$out" --silent -d project_kind="$kind" \
+                  --destination "$out" --silent -d project_kind="$kind" "${image[@]}" \
                   -d "description=Does a thing." -d "author_name=Jane Doe" \
                   -d "author_email=$email" -d github_username=jane \
                   -d "license=$licence" -d msrv=1.97 -d keywords=cli,parser \
                   -d categories=command-line-utilities
                 dir="$out/$name"
+                want=absent
+                if [ "$kind" != lib ] && [ -n "$email" ]; then want=present; fi
+                have=$([ -f "$dir/.github/workflows/image.yml" ] && echo present || echo absent)
+                if [ "$have" != "$want" ]; then
+                  echo "::error::$dir/.github/workflows/image.yml is $have, expected $want" >&2
+                  exit 1
+                fi
                 RUSTUP_TOOLCHAIN=stable cargo metadata --no-deps --format-version 1 \
                   --manifest-path "$dir/Cargo.toml" > /dev/null
                 # each package's licence files: the root, and a workspace's members
@@ -297,3 +309,20 @@ jobs:
         run: |
           nix build --print-build-logs
           ./result/bin/demo
+
+      # built by `nix flake check` (the flake's `image` check); here loaded and run as a user would
+      - name: The image runs
+        if: matrix.kind != 'lib'
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          set -euo pipefail
+          stream="$(nix build --no-link --print-out-paths .#image.stream)"
+          "$stream" | docker load
+          case ${{ matrix.kind }} in
+            both) expected="demo: 2 + 3 = 5" ;;
+            *) expected="Hello from demo!" ;;
+          esac
+          test "$(docker run --rm demo:0.1.0)" = "$expected"
+          test "$(docker inspect --format '{{ .Config.User }}' demo:0.1.0)" = "65534:65534"
+          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.source" }}' demo:0.1.0)" \
+            = "https://github.com/jane/demo"

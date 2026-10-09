@@ -30,6 +30,10 @@ Then, in whichever order suits you:
 - Run `dist init` to generate `.github/workflows/release.yml` from
   `dist-workspace.toml`, and commit it.
 {% endif -%}
+{% if project_kind != "lib" and container_image -%}
+- After the first release, make the image public: GHCR publishes a new package
+  as private (its page, Package settings → Change visibility).
+{% endif -%}
 - Run `just checks` once to confirm your toolchain is complete: a step that
   stops on a missing command names it -- `just`, `jq`, `dprint`, `cog`,
   `cargo-audit` or the nightly Miri component ([CONTRIBUTING.md](CONTRIBUTING.md)
@@ -62,7 +66,13 @@ compiling:
 ```sh
 cargo binstall {{project-name}}
 ```
-{% endif %}
+{% if container_image %}
+As an OCI image, for Linux on amd64 and arm64:
+
+```sh
+docker run --rm ghcr.io/{{ github_username | downcase }}/{{project-name}}
+```
+{% endif %}{% endif %}
 ## Build from source
 
 ```sh

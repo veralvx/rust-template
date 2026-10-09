@@ -74,6 +74,7 @@ template that validates none.
 | `msrv`            | `1.97`              | `package.rust-version`, `rust-toolchain.toml`, CI's MSRV job, Nix   |
 | `keywords`        | `rust`              | `package.keywords` (comma-separated, max 5)                         |
 | `categories`      | `development-tools` | `package.categories` (comma-separated, max 5)                       |
+| `container_image` | `true` (not `lib`)  | the flake's `image` and `image.yml` — see below                     |
 
 Every answer is validated by a regex at the prompt, so a typo is caught before
 generation rather than at `cargo publish`. `description` and `author_name`
@@ -81,6 +82,9 @@ land in TOML strings, so they may not hold `"` or `\`. `keywords` and
 `categories` follow crates.io's rules (max 5 each, 20 characters per keyword),
 and neither may be empty: `clippy::cargo_common_metadata` is enabled and
 requires both.
+
+`container_image` is asked for the layouts with a binary alone: a library has
+nothing to run.
 
 ### What `project_kind` selects
 
@@ -154,7 +158,7 @@ justfile              `just checks` = the nine checks CI runs; `just release`
 .githooks/            opt-in (`just install-hooks`): formatting before a
                       commit, Conventional Commits for the message and the push
 flake.nix             Nix: the pinned toolchain and every tool, the package,
-                      CI's checks as derivations
+                      CI's checks as derivations, the OCI image (if chosen)
 .cargo/config.toml    Miri flags
 .gitignore            target/, Nix's result links, direnv
 src/, tests/          starter code that passes the lint set as-is
@@ -163,7 +167,8 @@ src/, tests/          starter code that passes the lint set as-is
 AGENTS.md             the lint policy, and what to do when a lint fires
 README, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT
 LICENSE-MIT / LICENSE-APACHE (a workspace member carries its own copies)
-.github/              7 workflows, dependabot, issue + PR templates
+.github/              7 workflows (8 with the image), dependabot, issue + PR
+                      templates
 ```
 
 ### The lint policy
@@ -205,7 +210,10 @@ with `#[expect(lint, reason = "...")]`.
   Conventional Commits: every commit (no tag needed), and a pull request's title,
   which a squash merge makes the commit.
 - `nix.yml` — `nix flake check`: the flake's clippy, rustfmt, rustdoc and test
-  derivations built, and every system it declares evaluated.
+  derivations built (the image too, with it), and every system it declares
+  evaluated.
+- `image.yml` (with the image) — a release tag pushes the binary's OCI image to
+  GHCR, for amd64 and arm64, after starting it.
 
 Every action is pinned to a commit, its version in a comment; Dependabot moves
 them. Its Cargo bumps are `build(deps)` commits, which enter the changelog, and
@@ -231,7 +239,17 @@ once) and every tool `just checks` and `just release` call; `just miri` enters
 the flake's nightly `miri` shell itself. `nix flake check` builds clippy,
 rustfmt, rustdoc and the tests offline in the sandbox; `nix build` the binary
 (every layout but `lib`). The systems are those the flake's `nixos-unstable`
-input supports: x86_64 and aarch64 Linux, Apple silicon. The
+input supports: x86_64 and aarch64 Linux, Apple silicon.
+
+With `container_image`, the flake has an `image` on Linux:
+`dockerTools.buildLayeredImage` of the binary's package -- its closure alone, no
+base image and no `/bin/sh`, run as `nobody`, labelled for GHCR. `nix build
+.#image` gives the gzipped docker-archive, and the flake's checks build it;
+`.#image.stream` streams it uncompressed, sparing the store a second copy of the
+closure. `image.yml`, on a release tag, checks the tag against Cargo.toml's
+version, streams the image into Docker on amd64 and arm64, starts it, pushes
+each, and joins them as `ghcr.io/<owner>/<repository>:<version>` (`latest` too
+for a final release), with the job's token. The
 template ships no `flake.lock` -- it would age in the template; the first `nix`
 command writes one, and the generated README says to commit it.
 

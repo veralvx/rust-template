@@ -8,6 +8,9 @@
 {%- if project_kind != "lib" %}
 #   nix build            the binary, as ./result/bin/{{project-name}}
 {%- endif %}
+{%- if project_kind != "lib" and container_image %}
+#   nix build .#image    the binary as an OCI image (Linux): a gzipped docker-archive
+{%- endif %}
 #
 # The first nix command writes flake.lock: commit it; `nix flake update` moves it.
 {
@@ -30,13 +33,14 @@
         "aarch64-darwin"
       ];
 
-      # name, version and description from the manifests, so a release's bump is the flake's
+      # name, version, description, licence and repository from the manifests, so a release's
+      # bump is the flake's
       manifest = lib.importTOML ./Cargo.toml;
 {%- if project_kind == "workspace" %}
-      inherit (manifest.workspace.package) version;
+      inherit (manifest.workspace.package) version license repository;
       cargoPackage = (lib.importTOML ./crates/{{project-name}}/Cargo.toml).package;
 {%- else %}
-      inherit (manifest.package) version;
+      inherit (manifest.package) version license repository;
       cargoPackage = manifest.package;
 {%- endif %}
       pname = cargoPackage.name;
@@ -95,7 +99,11 @@
                   runHook postBuild
                 '';
                 doCheck = false;
-                installPhase = "touch $out";
+                installPhase = ''
+                  runHook preInstall
+                  touch $out
+                  runHook postInstall
+                '';
               }
             );
 {%- if project_kind != "lib" %}
@@ -110,14 +118,51 @@
 {%- endif %}
               meta = {
                 inherit (cargoPackage) description;
+                homepage = repository;
+                # the SPDX expression's identifiers, its operators and parentheses aside
+                license = map lib.getLicenseFromSpdxId (
+                  lib.subtractLists [ "" "AND" "OR" ] (lib.filter lib.isString (builtins.split "[ ()]+" license))
+                );
                 mainProgram = pname;
               };
             }
           );
 {%- endif %}
+{%- if project_kind != "lib" and container_image %}
+          # the binary as an OCI image: its closure alone -- no base image, no /bin/sh -- run as
+          # nobody. `.#image.stream` streams the archive uncompressed (image.yml's: no second
+          # copy of the closure in the store)
+          image = pkgs.dockerTools.buildLayeredImage {
+            name = pname;
+            tag = version;
+            # std::env::temp_dir's default; the image has no other
+            extraCommands = "mkdir -m 1777 tmp";
+            config = {
+              Entrypoint = [ (lib.getExe package) ];
+              # nobody: nothing in it needs root, and a numeric user needs no /etc/passwd
+              User = "65534:65534";
+              # what GHCR reads (docs.github.com, "Working with the Container registry"): the
+              # source links the image to its repository
+              Labels = {
+                "org.opencontainers.image.title" = pname;
+                "org.opencontainers.image.description" = cargoPackage.description;
+                "org.opencontainers.image.version" = version;
+                "org.opencontainers.image.source" = repository;
+                "org.opencontainers.image.licenses" = license;
+              };
+            };
+          };
+          # Linux's alone: an image's binary is Linux's
+          linux = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux { inherit image; };
+{%- endif %}
         in
         {
-{%- if project_kind != "lib" %}
+{%- if project_kind != "lib" and container_image %}
+          packages = {
+            default = package;
+          }
+          // linux;
+{%- elsif project_kind != "lib" %}
           packages.default = package;
 {%- endif %}
           checks = {
@@ -129,7 +174,11 @@
 {%- else %}
             inherit package;
 {%- endif %}
-          };
+          }
+{%- if project_kind != "lib" and container_image %}
+          # the image built: its layers, from the binary's closure
+          // linux
+{%- endif %};
           devShells = {
             default = pkgs.mkShell {
               packages = [
@@ -162,7 +211,8 @@
               ];
             };
           };
-          formatter = pkgs.nixfmt;
+          # `nix fmt` with no file passes the formatter none: nixfmt alone would read stdin
+          formatter = pkgs.nixfmt-tree;
         };
 
       bySystem = lib.genAttrs systems (system: perSystem nixpkgs.legacyPackages.${system});

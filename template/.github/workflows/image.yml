@@ -1,0 +1,85 @@
+# A release tag (`just release`'s v<version>) publishes the binary's OCI image to GHCR, as
+# ghcr.io/<owner>/<repository>: the flake's `image` built on each Linux architecture, started
+# once, pushed per architecture, then joined under one multi-architecture tag, <version> (and
+# `latest` for a final release). The job's token pushes: no secret stored. A first push is
+# private (GHCR's default): make the package public in its settings once. The per-architecture
+# tags (<version>-amd64, <version>-arm64) stay, the multi-architecture tag's parts.
+name: Image
+
+on:
+  push:
+    tags: ["v[0-9]*"]
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build and push (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+
+      - name: Build, start and push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/${GITHUB_REPOSITORY,,}"
+          version="${GITHUB_REF_NAME#v}"
+          # the tag's version is the one Cargo.toml declares at its commit, the image's tag
+          declared="$(nix eval --raw .#image.imageTag)"
+          if [[ $declared != "$version" ]]; then
+            echo "::error::$GITHUB_REF_NAME, but Cargo.toml declares $declared" >&2
+            exit 1
+          fi
+          # streamed into docker: no compressed copy of the closure in the store
+          stream="$(nix build --no-link --print-out-paths .#image.stream)"
+          "$stream" | docker load
+          loaded="$(nix eval --raw .#image.imageName):$version"
+          # the binary starts in the image, as its user: its own exit code is its arguments'
+          # business, but docker's 125-127 mean it never ran (the entrypoint missing or not
+          # executable there)
+          status=0
+          docker run --rm "$loaded" --help > /dev/null || status=$?
+          if (( status >= 125 && status <= 127 )); then
+            echo "::error::the image's entrypoint did not run (docker exit $status)" >&2
+            exit 1
+          fi
+          docker tag "$loaded" "$repository:$version-${{ matrix.arch }}"
+          docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
+          docker push "$repository:$version-${{ matrix.arch }}"
+
+  publish:
+    name: Multi-architecture tag
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Join the architectures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/${GITHUB_REPOSITORY,,}"
+          version="${GITHUB_REF_NAME#v}"
+          tags=(--tag "$repository:$version")
+          # `latest`: a final release alone (SemVer: no pre-release, no build metadata)
+          if [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then tags+=(--tag "$repository:latest"); fi
+          docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
+          docker buildx imagetools create "${tags[@]}" \
+            "$repository:$version-amd64" "$repository:$version-arm64"

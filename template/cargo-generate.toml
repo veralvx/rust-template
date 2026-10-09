@@ -91,6 +91,14 @@ prompt = "crates.io category slugs, comma separated (max 5, e.g. command-line-ut
 default = "development-tools"
 regex = '^\s*[a-z0-9-]+(::[a-z0-9-]+)*(\s*,\s*[a-z0-9-]+(::[a-z0-9-]+)*){0,4}\s*$'
 
+# Asked only where there is a binary to run: bin, both and workspace.
+# Conditions are Rhai, so `&&` and `!`; a lib never defines the variable,
+# which Liquid then reads as false.
+[conditional.'project_kind != "lib"'.placeholders.container_image]
+type = "bool"
+prompt = "Build the binary as an OCI image too (the flake's `image`, published to GHCR by image.yml)?"
+default = true
+
 # --- conditional file selection --------------------------------------
 #
 # NOTE: `ignore` entries are literal paths relative to the template root,
@@ -121,9 +129,19 @@ ignore = [
   "crates/{{project-name}}-core/LICENSE-MIT",
 ]
 
-# A library has no binary to ship, so cargo-dist has nothing to do.
+# A library has no binary to ship, so cargo-dist has nothing to do, and
+# there is no image.
 [conditional.'project_kind == "lib"']
-ignore = ["src/main.rs", "dist-workspace.toml", "crates"]
+ignore = [
+  "src/main.rs",
+  "dist-workspace.toml",
+  "crates",
+  ".github/workflows/image.yml",
+]
+
+# No image: no workflow to publish one (the flake's output is Liquid's).
+[conditional.'project_kind != "lib" && !container_image']
+ignore = [".github/workflows/image.yml"]
 
 # A binary-only crate has no public API to integration-test through.
 [conditional.'project_kind == "bin"']
