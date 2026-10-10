@@ -110,10 +110,10 @@ in the Nix sandbox -- which `nix flake check` runs locally.
 
 ## Releasing (maintainers)
 
-`just release <major|minor|patch>`, from a clean `main` up to date with
-`origin`. It runs `just checks`, bumps the version, writes `CHANGELOG.md` with
-git-cliff, commits, tags `v<version>` (the first release `v0.1.0`), pushes the
-commit and the tag together and runs `cargo publish --workspace`.{% if project_kind != "lib" and container_image %} The tag runs
+`just release <major|minor|patch>`, from a clean `main` equal to `origin/main`,
+CI green on it: the recipe runs no tests. It bumps the version, writes
+`CHANGELOG.md` with git-cliff, commits, tags `v<version>` (the first release
+`v0.1.0`), pushes the commit and the tag together and runs `cargo publish --workspace`.{% if project_kind != "lib" and container_image %} The tag runs
 `image.yml`: the binary's OCI image to GHCR, from the flake's `image` (`nix
 build .#image` builds it here).{% endif %} Before the
 first one:

@@ -142,10 +142,12 @@ release semver:
       exit 1
     fi
 
-    # 3. Safety: local main must not be behind remote
+    # 3. Safety: local main must be origin's -- pushed, so the commit
+    #    released is the one CI ran on (this recipe runs no tests: CI's
+    #    verdict is the release's)
     git fetch origin
-    if [ "$(git rev-list --count HEAD..origin/main)" -ne 0 ]; then
-      echo "Error: Your local 'main' branch is behind 'origin/main'. Please pull first." >&2
+    if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+      echo "Error: main is not origin/main: push (and let CI pass) or pull first." >&2
       exit 1
     fi
 
@@ -181,16 +183,12 @@ release semver:
       exit 1
     fi
 
-    # 5. Every check CI runs, before anything is written: a release is
-    #    never cut from a commit that would fail them.
-    just checks
-
     # If anything below fails before the commit, restore what it changed:
     # the manifests from HEAD, and a CHANGELOG.md the first release created.
     restore() {
       echo "Release aborted — restoring modified files." >&2
       git checkout HEAD -- Cargo.toml Cargo.lock
-      # HEAD's, not the index's: step 9 may have staged a new CHANGELOG.md
+      # HEAD's, not the index's: step 8 may have staged a new CHANGELOG.md
       if git cat-file -e HEAD:CHANGELOG.md 2> /dev/null; then
         git checkout HEAD -- CHANGELOG.md
       else
@@ -200,7 +198,7 @@ release semver:
     }
     trap restore ERR
 
-    # 6. Bump the version in Cargo.toml.
+    # 5. Bump the version in Cargo.toml.
     #
     # Only the first top-level `version =` is rewritten, which is the one
     # in [package] (or [workspace.package]): a `version = "1.0"` inside a
@@ -214,14 +212,14 @@ release semver:
       1
     ' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
 
-    # 6a. In a workspace, the intra-workspace dependencies carry the
+    # 5a. In a workspace, the intra-workspace dependencies carry the
     # same version as a `version = "..."` alongside their `path = "..."`,
     # and publishing fails if it goes stale. Rewrite the version only on
     # lines that also carry a `path =`, which is exactly those; in a
     # single-package manifest there are none and this is a no-op.
     sed -i "/path = /s/version = \"$old_version\"/version = \"$raw_version\"/g" Cargo.toml
 
-    # 6b. Guard: the rewrite must actually have landed. awk exits 0 whether
+    # 5b. Guard: the rewrite must actually have landed. awk exits 0 whether
     # or not it matched, so an unrecognised manifest layout would otherwise
     # produce a tag for a version that was never written.
     ws_ver="$(awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}' Cargo.toml)"
@@ -231,23 +229,23 @@ release semver:
       exit 1
     fi
 
-    # 7. Regenerate Cargo.lock to reflect the new version
+    # 6. Regenerate Cargo.lock to reflect the new version
     cargo check --quiet
 
-    # 8. Regenerate the full changelog
+    # 7. Regenerate the full changelog
     just changelog --bump "$semver" --output CHANGELOG.md
 
-    # 9. Stage exactly the three files modified by the release process
+    # 8. Stage exactly the three files modified by the release process
     git add Cargo.toml Cargo.lock CHANGELOG.md
 
-    # 10. Commit, then clear the trap: a refused commit (a git hook) still
-    #     restores the files, but once committed, a failure is solved by
-    #     retrying the tag or the push, not by reverting files.
+    # 9. Commit, then clear the trap: a refused commit (a git hook) still
+    #    restores the files, but once committed, a failure is solved by
+    #    retrying the tag or the push, not by reverting files.
     git commit -m "chore(release): bump to $tag"
     trap - ERR
     git tag -a "$tag" -m "Release $tag"
 
-    # 11. Push the branch and the tag atomically -- both or neither --
+    # 10. Push the branch and the tag atomically -- both or neither --
     #     then publish. `--workspace` publishes every member in dependency
     #     order (cargo 1.90+, hence the template's MSRV floor), and is
     #     correct for a single-package manifest too (a package with no

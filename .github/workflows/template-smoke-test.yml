@@ -167,8 +167,8 @@ jobs:
           cargo +stable install --locked cargo-generate@0.25.0 just@1.58.0
           cocogitto@7.0.0 git-cliff@2.14.2 cargo-audit@0.22.2
 
-      # on PATH, for `just dprint-check` (and so `just checks`, which `just
-      # release` runs) as much as for the step below
+      # on PATH, for the pre-commit hook (`just dprint-check`) every commit runs once
+      # it is installed, the releases' too, and for the dprint step
       - name: Install dprint
         run: npm install --global dprint@0.61.0
 
@@ -280,6 +280,14 @@ jobs:
             echo "::error::a release with nothing new was not refused" >&2
             exit 1
           fi
+          # a commit CI never ran on, a release otherwise: refused until pushed
+          git commit --quiet --allow-empty -m "fix: unpushed"
+          if out=$(just release patch 2>&1); then
+            echo "::error::a release of an unpushed main was not refused" >&2
+            exit 1
+          fi
+          grep -q "main is not origin/main" <<< "$out"
+          git reset --quiet --hard origin/main
 
   nix:
     name: Nix (${{ matrix.kind }})

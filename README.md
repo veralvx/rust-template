@@ -225,9 +225,10 @@ its action bumps `ci(deps)`, which do not.
 There is no `CHANGELOG.md` until the first release writes one: git-cliff
 generates it from the commits (`cliff.toml`), never a hand. `just changelog
 --unreleased` previews the next section. `just release <major|minor|patch>`
-refuses a dirty tree, another branch, a stale `main`, a version below
-Cargo.toml's or an empty release; runs `just checks`; then bumps the version
-(the workspace's intra-member pins too), writes the changelog, commits, tags
+runs no tests -- it releases `origin/main`, which CI checks. It refuses a dirty
+tree, another branch, a `main` that is not `origin/main`, a version below
+Cargo.toml's or an empty release; then bumps the version (the workspace's
+intra-member pins too), writes the changelog, commits, tags
 `v<version>` -- the first release `v0.1.0`, what Cargo.toml starts at -- pushes
 the commit and the tag atomically, and runs `cargo publish --workspace`. Each
 heading links its GitHub compare view, from Cargo.toml's `repository`.
@@ -345,8 +346,9 @@ Also confirmed by running it, not by reading it:
   `fix!` commit, bumps to `v0.2.0` -- Cargo.toml, Cargo.lock and the
   intra-workspace pin -- groups the breaking change first, leaves the release
   commit out, links the compare view, and pushes commit and tag together; it
-  refuses an empty release, a dirty tree and an unknown level. `just checks`
-  still passes after it. (`cargo publish` stopped at the missing token.)
+  refuses an empty release, a dirty tree, an unknown level and an unpushed
+  `main`. `just checks` still passes after it. (`cargo publish` stopped at the
+  missing token.)
 - Every conditional drops exactly the right files, for all four layouts and all
   three licence choices, a workspace member's licence copies included.
 - The workspace's hand-written `Cargo.lock` is byte-identical to what
