@@ -1,0 +1,35 @@
+# GitHub disables a public repository's schedule after 60 days without activity ("Events that
+# trigger workflows"): Dependabot alerts, the repository's setting, watch Cargo.lock without one.
+name: Security audit (cargo-audit)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/audit.toml"
+      - ".github/workflows/rust-audit.yml"
+  schedule:
+    - cron: "0 0 * * *" # Daily at midnight UTC
+
+# The action behaves differently by trigger:
+#   push / workflow_dispatch → creates a check run (pass/fail)
+#   schedule (cron)          → creates a GitHub issue per advisory
+permissions:
+  contents: read
+  issues: write # for issue creation on schedule
+  checks: write # for check creation on push
+
+jobs:
+  security_audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run cargo audit
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

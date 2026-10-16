@@ -1,0 +1,14 @@
+# Test code is held to a different standard than shipping code: an
+# `unwrap` in a test is an assertion, and a panic is how a test reports
+# failure. These five allow exactly that, and only inside `#[test]`
+# functions and `#[cfg(test)]` modules -- the same lints stay denied
+# everywhere else.
+allow-indexing-slicing-in-tests = true
+allow-panic-in-tests = true
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-dbg-in-tests = true
+
+# `clippy::too_many_lines` defaults to 100. Raise or lower it here
+# rather than sprinkling `#[expect]` over long-but-linear functions.
+too-many-lines-threshold = 120

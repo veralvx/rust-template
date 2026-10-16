@@ -1,0 +1,5 @@
+# cargo's build output
+/target
+# `nix build`'s result links, and direnv's cache for `use flake`
+/result*
+/.direnv

@@ -1,0 +1,6 @@
+#!/bin/sh
+# What fails fastest, so a commit stays quick: the shell, the workflows, dprint; render-check, the
+# smoke test and the flake are `just checks` and CI. Checks the working tree, not just what is
+# staged.
+set -eu
+just shell-check template-shell-check actionlint dprint-check

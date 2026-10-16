@@ -1,0 +1,44 @@
+# The action installs dprint's latest release, attested; the formatting is
+# the plugins', pinned in dprint.json.
+name: Dprint Formatting Checks
+
+on:
+  push:
+    paths:
+      # These must match the plugins configured in dprint.json, which
+      # are markdown and toml. Listing extensions no plugin handles
+      # (yaml, json, Dockerfile) only schedules runs that check nothing.
+      # Add a plugin there and an extension here together.
+      #
+      # GitHub Actions path filters do NOT support brace expansion {a,b}.
+      # Each extension must be its own entry.
+      - "**/*.md"
+      - "**/*.markdown"
+      - "**/*.toml"
+      - ".github/workflows/style-check-dprint.yml"
+      - "dprint.json"
+  # every pull request, whatever it touches: a path-filtered workflow never
+  # reports, and a required check that never reports blocks the merge
+  pull_request:
+
+# a pull request's newest run cancels its older ones; any other run, a group of its own: every
+# commit on main checked (in a shared group, a pending run gives way to the newest: the default)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dprint:
+    name: dprint check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Dprint format check
+        uses: dprint/check@7dc032d8874778fc024f6f9b4a7e6d896782c330 # v2.5
+        with:
+          config-path: dprint.json

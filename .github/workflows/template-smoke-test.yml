@@ -1,0 +1,397 @@
+name: Template smoke test
+
+# The template proven the only way that counts: generated with the real
+# cargo-generate, for every project_kind, and the result put through what its
+# own CI and `just checks` run. Weekly as well, because a template rots
+# without a commit: a new clippy lint, a new nightly, a moved nixpkgs.
+#
+#   render-check   tools/render-check.py: every prompt combination renders
+#                  and parses; the config invariants hold
+#   combinations   all 24 kind x licence x email answers through the real
+#                  cargo-generate (no email, no image): each manifest parses,
+#                  each licence file is where its choice puts it, the image's
+#                  workflow is there or not, dprint passes
+#   generate       cargo-generate; its git hooks, installed, refuse an
+#                  unformatted file, a bad message and a pushed revert; then
+#                  the generated justfile's recipes (clippy on the pinned MSRV
+#                  and on stable, Miri on nightly), dprint, cog, git-cliff and
+#                  `cargo package`; for the workspace, two `just release`s
+#                  against a bare remote
+#   nix            the generated flake.nix: `nix flake check` (the image among
+#                  its checks), `just fmt` changing nothing, `nix build`, and the
+#                  image run in Docker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+# a pull request's newest run cancels its older ones; any other run, a group of its own
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  render-check:
+    name: render-check.py
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # nix-instantiate: every rendered Nix file parsed, the variants no other job generates too
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+
+      - name: Render every combination
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --requirement tools/requirements.txt
+          "$RUNNER_TEMP/venv/bin/python" tools/render-check.py
+
+  combinations:
+    name: Every answer combination
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo (and cargo-generate)
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: smoke-combinations
+          cache-targets: "false"
+
+      - name: Install cargo-generate and dprint
+        run: |
+          cargo install --locked cargo-generate@0.25.0
+          npm install --global dprint@0.61.0
+
+      - name: Generate and check each
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/combinations"
+          mkdir -p "$out"
+          for kind in bin lib both workspace; do
+            for licence in "MIT OR Apache-2.0" MIT Apache-2.0; do
+              for email in jane@example.com ""; do
+                name="c-$kind-$(tr -cd 'a-z0-9' <<< "${licence,,}")${email:+-e}"
+                # the image: its default with the email, declined without (a lib is never asked)
+                image=()
+                if [ "$kind" != lib ] && [ -z "$email" ]; then image=(-d container_image=false); fi
+                cargo generate --path "$GITHUB_WORKSPACE" template --name "$name" \
+                  --destination "$out" --silent -d project_kind="$kind" "${image[@]}" \
+                  -d "description=Does a thing." -d "author_name=Jane Doe" \
+                  -d "author_email=$email" -d github_username=jane \
+                  -d "license=$licence" -d msrv=1.97 -d keywords=cli,parser \
+                  -d categories=command-line-utilities
+                dir="$out/$name"
+                want=absent
+                if [ "$kind" != lib ] && [ -n "$email" ]; then want=present; fi
+                for file in .github/workflows/image.yml .github/image-registries.sh; do
+                  have=$([ -f "$dir/$file" ] && echo present || echo absent)
+                  if [ "$have" != "$want" ]; then
+                    echo "::error::$dir/$file is $have, expected $want" >&2
+                    exit 1
+                  fi
+                done
+                RUSTUP_TOOLCHAIN=stable cargo metadata --no-deps --format-version 1 \
+                  --manifest-path "$dir/Cargo.toml" > /dev/null
+                # each package's licence files: the root, and a workspace's members
+                packages=("$dir")
+                if [ "$kind" = workspace ]; then packages+=("$dir"/crates/*); fi
+                for package in "${packages[@]}"; do
+                  for file in MIT APACHE; do
+                    case "$licence/$file" in
+                      MIT/APACHE | Apache-2.0/MIT) want=absent ;;
+                      *) want=present ;;
+                    esac
+                    have=$([ -f "$package/LICENSE-$file" ] && echo present || echo absent)
+                    if [ "$have" != "$want" ]; then
+                      echo "::error::$package/LICENSE-$file is $have, expected $want" >&2
+                      exit 1
+                    fi
+                  done
+                done
+                (cd "$dir" && dprint check)
+              done
+            done
+          done
+
+      - name: A name that is no Rust crate name is refused
+        run: |
+          set -euo pipefail
+          # no identifier, a keyword (validate-name.rhai); the destination must exist, or
+          # cargo-generate fails before the hook runs
+          mkdir -p "$RUNNER_TEMP/refused"
+          for name in 3d-tool fn self; do
+            if cargo generate --path "$GITHUB_WORKSPACE" template --name "$name" \
+              --destination "$RUNNER_TEMP/refused" --silent -d project_kind=bin \
+              -d "description=Does a thing." -d "author_name=Jane Doe" -d author_email= \
+              -d github_username=jane -d license=MIT -d msrv=1.97 -d keywords=cli \
+              -d categories=command-line-utilities -d container_image=false \
+              > "$RUNNER_TEMP/refused.log" 2>&1; then
+              echo "::error::$name was not refused" >&2
+              exit 1
+            fi
+            if ! grep -q 'choose another name' "$RUNNER_TEMP/refused.log"; then
+              echo "::error::$name failed, but not by the hook:" >&2
+              cat "$RUNNER_TEMP/refused.log" >&2
+              exit 1
+            fi
+          done
+
+  generate:
+    name: Generate (${{ matrix.kind }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [bin, lib, both, workspace]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - name: Install nightly + miri
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: nightly
+          components: miri
+
+      # Cargo's home only (the tools below, the registry): a cached target/
+      # restored into the destination would make cargo-generate refuse it
+      # ("Target directory already exists")
+      - name: Cache Cargo (and the tools it installs)
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: smoke-${{ matrix.kind }}
+          cache-targets: "false"
+
+      - name: Install the tools
+        run: >-
+          cargo +stable install --locked cargo-generate@0.25.0 just@1.58.0
+          cocogitto@7.0.0 git-cliff@2.14.2 cargo-audit@0.22.2
+
+      # on PATH, for the pre-commit hook (`just dprint-check`) every commit runs once
+      # it is installed, the releases' too, and for the dprint step
+      - name: Install dprint
+        run: npm install --global dprint@0.61.0
+
+      # the pre-commit hook's `just shell-check` too: nixpkgs' versions, the flake's
+      - name: Install shellcheck and shfmt
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: shellcheck@0.11.0,shfmt@3.14.1
+
+      # and its `just actionlint`: the release's binary (no action installs it), nixpkgs' version,
+      # its archive checked against the SHA-256 the release's checksums file gives
+      - name: Install actionlint
+        env:
+          ACTIONLINT: 1.7.12
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 --output "$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT/actionlint_${ACTIONLINT}_linux_amd64.tar.gz"
+          echo "$SHA256  $archive" | sha256sum --check --strict
+          mkdir -p "$HOME/.local/bin"
+          tar --extract --gzip --file "$archive" --directory "$HOME/.local/bin" actionlint
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Generate
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/generated"
+          cargo +stable generate --path "$GITHUB_WORKSPACE" template --name demo \
+            --destination "$RUNNER_TEMP/generated" -d project_kind=${{ matrix.kind }} \
+            --silent -d "description=Does a thing." -d "author_name=Jane Doe" \
+            -d author_email=jane@example.com -d github_username=jane \
+            -d "license=MIT OR Apache-2.0" -d msrv=1.97 -d keywords=cli,parser \
+            -d categories=command-line-utilities
+          cd "$RUNNER_TEMP/generated/demo"
+          # in git's config, not GIT_AUTHOR_NAME and the like: `cog verify` reads it there
+          git config user.name smoke
+          git config user.email smoke@example.com
+          git add .
+          git commit --quiet -m "chore: initial commit from template"
+
+      # installed for every step below, so the releases commit and push
+      # through them too
+      - name: The git hooks refuse what CI would
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          set -euo pipefail
+          just install-hooks
+          refused() {
+            if "$@"; then echo "::error::not refused: $*" >&2; exit 1; fi
+          }
+          # pre-commit: a source file rustfmt would change
+          file="$(git ls-files '*.rs' | head -n 1)"
+          printf '\nconst  UNFORMATTED: u8 = 0;\n' >> "$file"
+          refused git commit --quiet -am "style: unformatted"
+          git checkout -- "$file"
+          # commit-msg: a message that is no Conventional Commit; and, with the identity in
+          # the environment only, a refusal that says so rather than cog's panic
+          refused git commit --quiet --allow-empty -m "not conventional"
+          git config --unset user.email
+          refused env GIT_AUTHOR_EMAIL=smoke@example.com GIT_COMMITTER_EMAIL=smoke@example.com \
+            git commit --quiet --allow-empty -m "feat: no email in git's config" 2> refusal
+          grep -q "^commit-msg: cog verify needs git's user.name and user.email" refusal
+          rm refusal
+          git config user.email smoke@example.com
+          # pre-push: a revert, which git commits without running commit-msg
+          git init --quiet --bare "$RUNNER_TEMP/hooks.git"
+          echo probe > probe.txt
+          git add probe.txt
+          git commit --quiet -m "docs: a probe"
+          git revert --no-edit HEAD
+          refused git push --quiet "$RUNNER_TEMP/hooks.git" HEAD:main
+          git reset --quiet --hard HEAD~2
+          git push --quiet "$RUNNER_TEMP/hooks.git" HEAD:main
+
+      - name: The justfile's checks (the pinned MSRV toolchain)
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          set -euo pipefail
+          just --fmt --check --unstable
+          just cargo-check test clippy fmt-check docs-check shell-check actionlint cog audit
+          just miri
+
+      - name: Clippy on stable (what CI runs; new lints land here first)
+        working-directory: ${{ runner.temp }}/generated/demo
+        env:
+          RUSTUP_TOOLCHAIN: stable
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: dprint, with the plugins dprint.json pins
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: dprint check
+
+      - name: The changelog, and the package crates.io would get
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          set -euo pipefail
+          just changelog --unreleased
+          cargo +stable package --workspace --locked
+
+      # the recipe that commits, tags and pushes, against a bare remote; its
+      # `cargo publish` made a dry run, the one line changed for the test
+      - name: Two releases (workspace)
+        if: matrix.kind == 'workspace'
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          set -euo pipefail
+          sed -i 's/^    cargo publish --workspace$/    cargo publish --workspace --dry-run/' justfile
+          git commit --quiet -am "test: publish as a dry run"
+          git init --quiet --bare "$RUNNER_TEMP/origin.git"
+          git remote add origin "$RUNNER_TEMP/origin.git"
+          git push --quiet origin main
+          git commit --quiet --allow-empty -m "feat(core): count things"
+          git push --quiet origin main
+          just release minor
+          git commit --quiet --allow-empty -m "fix!: refuse zero"
+          git push --quiet origin main
+          just release minor
+          test "$(git -C "$RUNNER_TEMP/origin.git" tag | tr '\n' ' ')" = "v0.1.0 v0.2.0 "
+          grep -q '^version = "0.2.0"' Cargo.toml
+          grep -q '^## \[0.2.0\](https://github.com/jane/demo/compare/v0.1.0..v0.2.0)' CHANGELOG.md
+          if just release patch; then
+            echo "::error::a release with nothing new was not refused" >&2
+            exit 1
+          fi
+          # a commit CI never ran on, a release otherwise: refused until pushed
+          git commit --quiet --allow-empty -m "fix: unpushed"
+          if out=$(just release patch 2>&1); then
+            echo "::error::a release of an unpushed main was not refused" >&2
+            exit 1
+          fi
+          grep -q "main is not origin/main" <<< "$out"
+          git reset --quiet --hard origin/main
+
+  nix:
+    name: Nix (${{ matrix.kind }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [bin, lib, both, workspace]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+
+      - name: Generate
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/generated"
+          nix run nixpkgs#cargo-generate -- generate --path "$GITHUB_WORKSPACE" template \
+            --name demo --destination "$RUNNER_TEMP/generated" -d project_kind=${{ matrix.kind }} \
+            --silent -d "description=Does a thing." -d "author_name=Jane Doe" \
+            -d author_email=jane@example.com -d github_username=jane \
+            -d "license=MIT OR Apache-2.0" -d msrv=1.97 -d keywords=cli,parser \
+            -d categories=command-line-utilities
+          # nixpkgs builds cargo-generate without its `git` feature (buildNoDefaultFeatures),
+          # so no repository is made; and a git flake sees tracked files only
+          git -C "$RUNNER_TEMP/generated/demo" init --quiet
+          git -C "$RUNNER_TEMP/generated/demo" add .
+
+      - name: nix fmt, then nix flake check (every system evaluated, this one built)
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          nix fmt -- --ci
+          nix flake check --no-build --all-systems
+          nix flake check --print-build-logs
+
+      # every formatter, `nix fmt` last, on what generation wrote: nothing to change
+      - name: just fmt changes nothing
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          nix develop --command just fmt
+          git diff --exit-code
+
+      - name: nix build
+        if: matrix.kind != 'lib'
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          nix build --print-build-logs
+          ./result/bin/demo
+
+      # built by `nix flake check` (the flake's `image` check); here loaded and run as a user would
+      - name: The image runs
+        if: matrix.kind != 'lib'
+        working-directory: ${{ runner.temp }}/generated/demo
+        run: |
+          set -euo pipefail
+          stream="$(nix build --no-link --print-out-paths .#image.stream)"
+          "$stream" | docker load
+          case ${{ matrix.kind }} in
+            both | workspace) expected="demo: 2 + 3 = 5" ;; # main.rs calls the library
+            *) expected="Hello from demo!" ;;
+          esac
+          test "$(docker run --rm demo:0.1.0)" = "$expected"
+          test "$(docker inspect --format '{{ .Config.User }}' demo:0.1.0)" = "65534:65534"
+          test "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.source" }}' demo:0.1.0)" \
+            = "https://github.com/jane/demo"

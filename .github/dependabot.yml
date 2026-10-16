@@ -1,0 +1,44 @@
+# This repository's actions (`/`, read as .github/workflows) and the template's, which a generated
+# project starts from (copied verbatim, so an update there is safe; any other directory is read as
+# the YAML files in it: dependabot-core's github_actions file fetcher). One entry, grouped: one pull
+# request across both directories (as rust-template's first one was) -- the workflows render-check
+# holds equal here and in template/ must move together, or neither pull request would pass. Its
+# commits are `build(deps)`: a bump changes what a project is generated with, so the changelog
+# lists it and a release carries it. And render-check's Python packages (tools/requirements.txt),
+# whose update render-check itself then checks.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/"
+      - "/template/.github/workflows"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "07:00"
+      timezone: "UTC"
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      actions:
+        patterns:
+          - "*"
+    cooldown:
+      default-days: 3
+
+  - package-ecosystem: "pip"
+    directory: "/tools"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "07:00"
+      timezone: "UTC"
+    commit-message:
+      prefix: "ci"
+    groups:
+      render-check:
+        patterns:
+          - "*"
+    cooldown:
+      default-days: 3

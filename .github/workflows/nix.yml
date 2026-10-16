@@ -1,0 +1,45 @@
+# The flake's formatter (`nix fmt`: nixfmt, shfmt, just's own), then its checks (flake.nix): the
+# format, the shell (`just shell-check` here and in template/: shellcheck and shfmt, the justfiles'
+# script recipes too) and the workflows (actionlint) -- `just nix`, step by step. The checks are the
+# same on every system, so one runner builds them; every system is evaluated.
+name: Nix
+
+on:
+  push:
+    branches: [main]
+  # every pull request, whatever it touches: a path-filtered workflow never reports, and a
+  # required check that never reports blocks the merge
+  pull_request:
+  workflow_dispatch:
+
+# a pull request's newest run cancels its older ones; any other run, a group of its own: every
+# commit on main checked (in a shared group, a pending run gives way to the newest: the default)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  flake-check:
+    name: nix flake check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        # flakes on, and the job's token for GitHub fetches
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+
+      # the formatter's verdict as `nix fmt` gives it: --ci formats, and fails if that changed a
+      # file, as the flake's `format` check fails
+      - name: nix fmt (check)
+        run: nix fmt -- --ci
+
+      - name: Evaluate every system
+        run: nix flake check --no-build --all-systems
+
+      - name: nix flake check
+        run: nix flake check --print-build-logs

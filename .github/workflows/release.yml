@@ -1,0 +1,33 @@
+# A release tag (`just release`'s v<version>) makes the GitHub release, its notes the changelog's
+# section for that version -- refused if the changelog's first section is not it. cargo-generate
+# takes the template from the repository (`--tag v<version>`), or from the release's source
+# archive (`--path`).
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]*"]
+
+permissions: {}
+
+jobs:
+  release:
+    name: GitHub release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          .github/release-notes.sh CHANGELOG.md "$version" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "rust-template $version" --notes-file "$RUNNER_TEMP/notes.md"

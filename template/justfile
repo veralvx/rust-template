@@ -1,0 +1,523 @@
+# NOTE: this file is copied verbatim by cargo-generate and is never
+# processed by the template engine -- the double-brace interpolation
+# below is just's own, not a cargo-generate placeholder. Keep this file
+# project-agnostic: a prompted value written here would ship unexpanded.
+# What a recipe needs to know about the project it reads at run time
+# (`cargo metadata`, Cargo.toml).
+#
+# Formatted with `just --fmt --unstable`.
+
+[doc("List the recipes")]
+default:
+    @just --list --unsorted
+
+[doc("cargo check, every target and feature, against the lock")]
+cargo-check:
+    cargo check --workspace --all-targets --all-features --locked
+
+[doc("The tests, every target and feature, then the doctests where there are any")]
+test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo test --workspace --all-targets --all-features --locked
+
+    # `--all-targets` silently skips doctests, so they need their own run.
+    # But `--doc` exits 101 with "no library targets found" on a
+    # binary-only crate, so only run it when there is something to run.
+    # Counted first, outside any `if`: a missing jq or a failing `cargo
+    # metadata` stops the recipe instead of reading as "no doctests".
+    doctests="$(cargo metadata --no-deps --format-version 1 --locked \
+        | jq '[.packages[].targets[] | select(.doctest)] | length')"
+    if [ "$doctests" -gt 0 ]; then
+        cargo test --workspace --doc --all-features --locked
+    else
+        echo "No library target in this package; skipping doctests."
+    fi
+
+# Miri needs a nightly toolchain: rustup's `+nightly`, or in the flake's
+# shell -- whose cargo is no rustup proxy, even where rustup is installed --
+# the flake's `miri` shell. MIRIFLAGS come from .cargo/config.toml.
+[doc("The tests under Miri (nightly)")]
+miri:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "${IN_NIX_SHELL:-}" ] || ! command -v rustup > /dev/null; then
+        nix develop .#miri --command cargo miri test --workspace --all-features --locked
+    else
+        cargo +nightly miri test --workspace --all-features --locked
+    fi
+
+# `-- -D warnings`, as CI runs it: a RUSTFLAGS=-Dwarnings would change
+# the build's fingerprint and rebuild everything the other recipes built.
+[doc("Clippy, every warning an error")]
+clippy:
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+[doc("The code's format, checked (rustfmt)")]
+fmt-check:
+    cargo fmt --all -- --check
+
+[doc("The documentation built, every warning an error")]
+docs-check:
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
+
+[doc("Every commit conventional (cog.toml)")]
+cog:
+    cog check
+
+# actionlint runs shellcheck on each `run:` script too, when it is on PATH.
+[doc("The workflows linted (actionlint)")]
+actionlint:
+    actionlint
+
+[doc("Markdown and TOML formatted (dprint.json)")]
+dprint-check:
+    dprint check
+
+[doc("Known vulnerabilities in the lock's dependencies (cargo-audit)")]
+audit:
+    cargo audit
+
+# shellcheck and shfmt over every shell script git does not ignore -- shfmt finds them, by extension
+# or shebang, and formats them as .editorconfig says -- and over this justfile's shell script
+# recipes (a sh, bash, dash or ksh shebang), which no file holds: each taken from `just --dump`,
+# the names the justfile exports declared before it for shellcheck (their values are just's
+# expressions, not shell's), formatted in the justfile's own style (4 spaces). A script recipe
+# takes its values as arguments, never as `{{ }}` spliced into its text, and names its shell in a
+# shebang, not a `[script]` attribute (whose body holds none to read): both are refused here.
+[doc("The shell: shellcheck and shfmt over the scripts, the git hooks and the justfile's script recipes")]
+shell-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT
+    failed=0
+    just shfmt --diff || failed=1
+    scripts=()
+    while IFS= read -r file; do
+        scripts+=("$file")
+    done < <(just shfmt --find)
+    if [ "${#scripts[@]}" -gt 0 ]; then
+        shellcheck "${scripts[@]}" || failed=1
+    fi
+    dump="$(just --dump --dump-format json)"
+    while IFS= read -r recipe; do
+        if jq -e --arg recipe "$recipe" '.recipes[$recipe].attributes | any(type == "object" and has("script"))' <<< "$dump" > /dev/null; then
+            echo "error: $recipe: a [script] recipe -- name its shell in a shebang instead" >&2
+            failed=1
+            continue
+        fi
+        # its shebang's program, or the one `env` runs, past env's options (`-S`)
+        read -r -a shebang < <(jq -r --arg recipe "$recipe" '.recipes[$recipe].body[0][0] | ltrimstr("#!")' <<< "$dump")
+        program="${shebang[0]-}"
+        program="${program##*/}"
+        if [ "$program" = env ]; then
+            program=""
+            for word in "${shebang[@]:1}"; do
+                if [[ $word != -* ]]; then
+                    program="$word"
+                    break
+                fi
+            done
+        fi
+        case "$program" in
+            sh | bash | dash | ksh) ;;
+            *) continue ;;
+        esac
+        jq -r --arg recipe "$recipe" '
+            .recipes[$recipe].body
+            | map(map(if type == "string" then . else error("\($recipe): an interpolation in a script recipe: pass the value as an argument") end) | join(""))
+            | join("\n")
+        ' <<< "$dump" > "$work/$recipe" || {
+            failed=1
+            continue
+        }
+        # after the shebang, the variables just exports to it: the `export`ed assignments and
+        # `$`-parameters, or every one under `set export`
+        {
+            head -n 1 "$work/$recipe"
+            jq -r --arg recipe "$recipe" '
+                .settings.export as $all
+                | (.assignments[], .recipes[$recipe].parameters[])
+                | select($all or .export)
+                | "export \(.name)="
+            ' <<< "$dump"
+            tail -n +2 "$work/$recipe"
+        } > "$work/$recipe.with-exports"
+        (cd "$work" && shellcheck --shell="$program" "$recipe.with-exports") || failed=1
+        (cd "$work" && shfmt --diff --indent 4 --case-indent --space-redirects --binary-next-line "$recipe") || failed=1
+    done < <(jq -r '.recipes | to_entries[] | select(.value.shebang) | .key' <<< "$dump")
+    exit "$failed"
+
+# shfmt over every shell script git does not ignore and that exists (shfmt finds them, by extension
+# or shebang): `just shfmt --find` lists them, `--diff` checks, `--write` formats.
+[positional-arguments]
+[private]
+shfmt mode:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # a process substitution's failure goes unseen (set -e): outside a repository, ls-files' would
+    git rev-parse --is-inside-work-tree > /dev/null
+    files=()
+    while IFS= read -r -d '' file; do
+        if [ -f "$file" ]; then files+=("$file"); fi
+    done < <(git ls-files -z --cached --others --exclude-standard)
+    # with no file, shfmt would read stdin; a command substitution, so a failing shfmt stops here
+    found=""
+    if [ "${#files[@]}" -gt 0 ]; then found="$(shfmt --find "${files[@]}")"; fi
+    if [ -z "$found" ]; then exit 0; fi
+    scripts=()
+    while IFS= read -r file; do
+        scripts+=("$file")
+    done <<< "$found"
+    case "$1" in
+        --find) printf '%s\n' "${scripts[@]}" ;;
+        *) shfmt "$1" "${scripts[@]}" ;;
+    esac
+
+# The justfile's own script recipes formatted as `just shell-check` holds them: each sh, bash, dash
+# or ksh recipe taken from `just --dump`, through shfmt in the justfile's style, and put back in
+# its place, 4 spaces in. A `[script]` recipe, or one with a `{{ }}` in it, is shell-check's to
+# refuse, and is left as it is.
+[private]
+shfmt-recipes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT
+    dump="$(just --dump --dump-format json)"
+    # the shebang's program, or the one `env` runs, past env's options (`-S`), as shell-check reads it
+    names="$(jq -r '
+        .recipes[]
+        | select(.shebang)
+        | select(.attributes | any(type == "object" and has("script")) | not)
+        | select(all(.body[][]; type == "string"))
+        | select(
+            (.body[0][0] | ltrimstr("#!") | split(" ") | map(select(. != ""))) as $words
+            | ($words[0] | split("/") | last) as $program
+            | if $program == "env" then [$words[1:][] | select(startswith("-") | not)][0] else $program end
+            | IN("sh", "bash", "dash", "ksh")
+        )
+        | .name
+    ' <<< "$dump")"
+    if [ -z "$names" ]; then exit 0; fi
+    while IFS= read -r recipe; do
+        jq -r --arg recipe "$recipe" '.recipes[$recipe].body | map(join("")) | join("\n")' <<< "$dump" > "$work/body"
+        shfmt --indent 4 --case-indent --space-redirects --binary-next-line "$work/body" > "$work/formatted"
+        if cmp -s "$work/body" "$work/formatted"; then continue; fi
+        # the recipe's line, then its body in place of the old: every line to the next at the
+        # margin, less the blank lines before that one
+        awk -v recipe="$recipe" -v formatted="$work/formatted" '
+            function body(line) {
+                while ((getline line < formatted) > 0) print (line == "" ? "" : "    " line)
+                close(formatted)
+            }
+            state == 1 && $0 == "" { blanks++; next }
+            state == 1 && /^[ \t]/ { blanks = 0; next }
+            state == 1 {
+                body()
+                for (; blanks > 0; blanks--) print ""
+                state = 2
+            }
+            state == 0 && $0 ~ ("^@?" recipe "([ \t][^:]*)?:") && $0 !~ ("^" recipe "[ \t]*:=") { state = 1 }
+            { print }
+            END { if (state == 1) body() }
+        ' justfile > "$work/justfile"
+        cat "$work/justfile" > justfile
+    done <<< "$names"
+
+# `nix fmt -- --ci` formats -- treefmt has no check-only mode -- and fails if that changed a file:
+# look at the change, then commit it. The flake's `format` check is the same verdict, on a copy.
+[doc("The flake: its formatter's verdict (`nix fmt`), every system evaluated, this one's checks built")]
+nix:
+    nix fmt -- --ci
+    nix flake check --no-build --all-systems
+    nix flake check
+
+# The checks CI's workflows run, one after another, on the toolchain
+# rust-toolchain.toml pins (the MSRV; Miri on nightly), the flake's last:
+# the slowest, and the one a machine without Nix cannot run. CI runs check,
+# test, clippy, fmt and docs on the latest stable, where a lint newer than
+# the MSRV can still fire; the pinned toolchain runs there in the MSRV job
+# and in nix.yml (`nix flake check`, the shell's check among its checks).
+#
+# `just` takes only the LAST comment line above a recipe as its doc
+# string, which would show as a fragment in `just --list`; the explicit
+# attribute keeps the listing readable and the comment block intact.
+[doc("Run the checks CI runs (on the pinned toolchain)")]
+checks:
+    just cargo-check
+    just test
+    just miri
+    just clippy
+    just fmt-check
+    just docs-check
+    just shell-check
+    just actionlint
+    just dprint-check
+    just cog
+    just audit
+    just nix
+
+# Every formatter a check holds the files to. The Nix last, through `nix fmt`
+# (flake.nix's formatter: nixfmt, and shfmt and just's own again): without
+# Nix, it stops there, the rest formatted.
+[doc("Format the code, the shell scripts, the justfile, the Markdown and the TOML, then the Nix (modifies files)")]
+fmt:
+    cargo fmt
+    just shfmt --write
+    just shfmt-recipes
+    just --fmt --unstable
+    dprint fmt
+    nix fmt
+
+# Opt-in, as every git hook is: a clone never installs one, so CI stays
+# the gate. `git config --unset core.hooksPath` turns them off again.
+[doc("Use .githooks: formatting, the shell and the workflows before a commit, Conventional Commits for the message and before a push")]
+install-hooks:
+    git config core.hooksPath .githooks
+
+[doc("dprint's plugins to their latest releases (dprint.json), then the Markdown and TOML rechecked")]
+dprint-update:
+    dprint config update
+    dprint check
+
+# git-cliff, offline, with the repository the compare links need read
+# from Cargo.toml's `repository` (cliff.toml is project-agnostic).
+[doc("The changelog from the commits (cliff.toml): `just changelog --unreleased` previews the next release")]
+[positional-arguments]
+changelog *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    url="$(cargo metadata --no-deps --format-version 1 | jq -r '[.packages[].repository | select(. != null)][0] // ""')"
+    case "$url" in
+        https://github.com/*/*)
+            repo="${url#https://github.com/}"
+            repo="${repo%.git}"
+            repo="${repo%/}"
+            ;;
+        *)
+            echo "Error: Cargo.toml's repository is not a GitHub URL (got '$url')." >&2
+            exit 1
+            ;;
+    esac
+    git cliff --offline --github-repo "$repo" "$@"
+
+[doc("Release a new version: [major|minor|patch]")]
+[positional-arguments]
+release semver:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # 0. Validate the argument -- passed as $1, never spliced into this
+    #    script's text, so no value can run as code
+    semver="$1"
+    case "$semver" in
+        major | minor | patch) ;;
+        *)
+            echo "Error: argument must be 'major', 'minor', or 'patch' (got '$semver')" >&2
+            exit 1
+            ;;
+    esac
+
+    # 1. Safety: working directory must be clean
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "Error: Working directory is not clean. Commit or stash your changes first." >&2
+        exit 1
+    fi
+
+    # 2. Safety: must be on main
+    current_branch="$(git branch --show-current)"
+    if [ "$current_branch" != "main" ]; then
+        echo "Error: You must be on the 'main' branch to cut a release (on '$current_branch')." >&2
+        exit 1
+    fi
+
+    # 3. Safety: local main must be origin's -- pushed, so the commit
+    #    released is the one CI ran on (this recipe runs no tests: CI's
+    #    verdict is the release's)
+    git fetch origin
+    if ! git rev-parse --quiet --verify origin/main > /dev/null; then
+        echo "Error: origin has no main: push it first." >&2
+        exit 1
+    fi
+    if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+        echo "Error: main is not origin/main: push (and let CI pass) or pull first." >&2
+        exit 1
+    fi
+
+    # 4. Compute the version tag: git-cliff's bump of the last tag or,
+    #    with no tag yet, the version Cargo.toml declares, whatever the
+    #    level. The outgoing version is read here too: the new one may not
+    #    go below it, and step 5a finds the intra-workspace dependencies
+    #    pinned to it.
+    old_version="$(awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}' Cargo.toml)"
+    if [ -n "$(git tag --list 'v[0-9]*')" ]; then
+        version=(--bump "$semver")
+    else
+        version=(--tag "v$old_version")
+    fi
+    context="$(just changelog --unreleased "${version[@]}" --context \
+        | jq -c 'if type == "array" then .[0] else .releases[0] end')"
+    tag="$(jq -r '.version' <<< "$context")"
+
+    if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+        echo "Error: Could not determine bumped version. Are there unreleased conventional commits?" >&2
+        exit 1
+    fi
+    # what the changelog would list: git-cliff bumps even an empty range
+    if [ "$(jq '.commits | length' <<< "$context")" -eq 0 ]; then
+        echo "Error: nothing to release -- no commit since the last tag would enter the changelog." >&2
+        exit 1
+    fi
+    if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+        echo "Error: $tag is already tagged; nothing new to release at this level." >&2
+        exit 1
+    fi
+
+    # Strip a leading 'v' for Cargo (e.g. v1.2.3 → 1.2.3)
+    raw_version="${tag#v}"
+
+    if ! printf '%s\n' "$old_version" "$raw_version" | sort -C -V; then
+        echo "Error: $tag is below the version Cargo.toml already carries ($old_version)." >&2
+        exit 1
+    fi
+
+    # If anything below fails before the commit, restore what it changed:
+    # the manifests from HEAD, and a CHANGELOG.md the first release created.
+    restore() {
+        echo "Release aborted -- restoring modified files." >&2
+        rm -f Cargo.toml.tmp
+        git checkout HEAD -- Cargo.toml Cargo.lock
+        # HEAD's, not the index's: step 8 may have staged a new CHANGELOG.md
+        if git cat-file -e HEAD:CHANGELOG.md 2> /dev/null; then
+            git checkout HEAD -- CHANGELOG.md
+        else
+            git rm --quiet --cached --ignore-unmatch CHANGELOG.md
+            rm -f CHANGELOG.md
+        fi
+    }
+    trap restore ERR
+
+    # 5. Bump the version in Cargo.toml.
+    #
+    # Only the first top-level `version =` is rewritten, which is the one
+    # in [package] (or [workspace.package]): a `version = "1.0"` inside a
+    # [dependencies] entry is indented or inline and does not match `^version`.
+    awk -v ver="$raw_version" '
+      /^version[[:space:]]*=/ && !done {
+        print "version = \"" ver "\""
+        done = 1
+        next
+      }
+      1
+    ' Cargo.toml > Cargo.toml.tmp
+    mv Cargo.toml.tmp Cargo.toml
+
+    # 5a. In a workspace, the intra-workspace dependencies carry the
+    # same version as a `version = "..."` alongside their `path = "..."`,
+    # and publishing fails if it goes stale. Rewrite the version only on
+    # lines that also carry a `path =`, which is exactly those; in a
+    # single-package manifest there are none and this is a no-op. Written
+    # to a file, then moved: BSD sed (macOS's) reads `-i`'s next argument
+    # as a backup suffix.
+    sed "/path = /s/version = \"$old_version\"/version = \"$raw_version\"/g" Cargo.toml > Cargo.toml.tmp
+    mv Cargo.toml.tmp Cargo.toml
+
+    # 5b. Guard: the rewrite must actually have landed. awk exits 0 whether
+    # or not it matched, so an unrecognised manifest layout would otherwise
+    # produce a tag for a version that was never written.
+    ws_ver="$(awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}' Cargo.toml)"
+    if [ "$ws_ver" != "$raw_version" ]; then
+        echo "Error: Cargo.toml version is '$ws_ver', expected '$raw_version'." >&2
+        echo "       The manifest was not rewritten as expected; nothing has been tagged." >&2
+        # an explicit exit runs no ERR trap: restore first
+        restore
+        exit 1
+    fi
+
+    # 6. Regenerate Cargo.lock to reflect the new version
+    cargo check --quiet
+
+    # 7. Regenerate the full changelog
+    just changelog --tag "$tag" --output CHANGELOG.md
+
+    # 8. Stage exactly the three files modified by the release process
+    git add Cargo.toml Cargo.lock CHANGELOG.md
+
+    # 9. Commit, then change the trap: a refused commit (a git hook) still
+    #    restores the files, but once committed, a failure is finished by
+    #    hand -- the tag, the push, the publish -- not by reverting files.
+    git commit -m "chore(release): bump to $tag"
+    finish() {
+        echo "Error: $tag is committed; finish it by hand: git tag -a $tag -m 'Release $tag' (unless tagged), git push --atomic origin main $tag, then cargo publish --workspace." >&2
+    }
+    trap finish ERR
+    git tag -a "$tag" -m "Release $tag"
+
+    # 10. Push the branch and the tag atomically -- both or neither --
+    #     then publish. `--workspace` publishes every member in dependency
+    #     order (cargo 1.90+, hence the template's MSRV floor), and is
+    #     correct for a single-package manifest too (a package with no
+    #     [workspace] table is its own workspace of one).
+    #     Drop the `cargo publish` step for a crate that is not published
+    #     to a registry.
+    git push --atomic origin main "$tag"
+    trap - ERR
+    cargo publish --workspace || {
+        echo "Error: $tag is tagged and pushed, not (all) published: once the error above is fixed, cargo publish what the registry lacks (--workspace, or -p <crate>)." >&2
+        exit 1
+    }
+
+    echo "Released $tag"
+
+# ---------------------------------------------------------------------
+# Valgrind
+#
+# memcheck is the one worth gating on. helgrind is not: Rust's `mpsc` is
+# built on the lock-free `mpmc` channel, whose happens-before edges
+# helgrind cannot model, so it reports races that are not there. Use
+# helgrind to investigate, never to gate.
+#
+# `--show-leak-kinds=definite,indirect` is deliberate. The default also
+# counts "possibly lost", and libtest's own result-collection channel
+# allocates one such block that is never freed by design. Counting it
+# would make a clean run exit non-zero forever.
+# ---------------------------------------------------------------------
+
+[doc("Memcheck every test binary in the workspace")]
+valgrind:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # the comma lists quoted: one argument each, not shellcheck's array-element typo (SC2054)
+    vg=(valgrind --tool=memcheck --leak-check=full
+        "--show-leak-kinds=definite,indirect" "--errors-for-leak-kinds=definite,indirect"
+        --track-origins=yes --error-exitcode=99 -q)
+    # a private directory: the reports outlive the run when it fails
+    logs="$(mktemp -d)"
+    # cargo's diagnostics stay on stderr: a build that fails says why
+    cargo test --workspace --all-features --locked --no-run --message-format=json \
+        | jq -r 'select(.reason=="compiler-artifact" and .profile.test and .executable)
+               | "\(.target.name)\t\(.executable)"' \
+        | sort -u > "$logs/targets.tsv"
+
+    # Read from a file rather than a pipe: a `while` on the right of a pipe
+    # runs in a subshell, so an `exit 1` inside it would not fail the
+    # recipe -- the failure would be silently swallowed.
+    failed=0
+    while IFS=$'\t' read -r name exe; do
+        # by the executable's own name: a crate's lib and bin tests share
+        # their target name, and one log would overwrite the other's
+        log="$logs/$(basename "$exe").err"
+        printf '%-24s ' "$name"
+        if "${vg[@]}" "$exe" --test-threads=1 > /dev/null 2> "$log"; then
+            echo "clean"
+        else
+            echo "ERRORS -> $log"
+            failed=1
+        fi
+    done < "$logs/targets.tsv"
+    if [ "$failed" -eq 0 ]; then
+        rm -rf "$logs"
+    fi
+    exit "$failed"

@@ -1,0 +1,3 @@
+# tools/render-check.py's: `just render-check` and the smoke test install these, exactly
+python-liquid==2.3.4
+pyyaml==6.0.3

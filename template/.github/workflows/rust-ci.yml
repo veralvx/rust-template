@@ -1,0 +1,254 @@
+name: Rust CI (check, test, clippy, fmt, docs, miri)
+
+# NOTE: this file is copied verbatim by cargo-generate and is never
+# processed by the template engine -- `${{ ... }}` below is a GitHub
+# Actions expression, not a placeholder. Anything project-specific must
+# therefore be derived at run time, as the MSRV job does below.
+#
+# Toolchains: rust-toolchain.toml pins the MSRV, and rustup obeys that file
+# over the default a toolchain action sets -- so the jobs meant for the
+# latest stable say so with RUSTUP_TOOLCHAIN (which outranks the file), and
+# the MSRV job is the one that builds with the pinned toolchain. Actions are
+# pinned to commits (Dependabot moves them); dtolnay/rust-toolchain is pinned
+# to a commit of its master branch and told the toolchain.
+
+on:
+  push:
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".cargo/config.toml"
+      - "clippy.toml"
+      - "rustfmt.toml"
+      - "rust-toolchain.toml"
+      - ".github/workflows/rust-ci.yml"
+  # every pull request, whatever it touches: a path-filtered workflow never
+  # reports, and a required check that never reports blocks the merge
+  pull_request:
+
+# a pull request's newest run cancels its older ones; any other run, a group of its own: every
+# commit on main checked (in a shared group, a pending run gives way to the newest: the default)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["--all-features"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: check-${{ matrix.features }}
+
+      - name: Cargo check
+        run: cargo check --workspace --all-targets --locked --verbose ${{ matrix.features }}
+
+  test:
+    name: Test (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["--all-features"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: test-${{ matrix.features }}
+
+      - name: Cargo test
+        run: cargo test --workspace --all-targets --locked --verbose ${{ matrix.features }}
+
+      - name: Cargo test (doctests)
+        run: |
+          # `--all-targets` silently skips doctests, so they need their own
+          # run. But `--doc` exits 101 with "no library targets found" on a
+          # binary-only crate, so ask cargo whether any doctests exist
+          # before running them. (jq is preinstalled on GitHub runners.)
+          # Counted outside the `if`, so a failing `cargo metadata` stops
+          # the job instead of reading as "no doctests".
+          set -euo pipefail
+          doctests="$(cargo metadata --no-deps --format-version 1 --locked \
+            | jq '[.packages[].targets[] | select(.doctest)] | length')"
+          if [ "$doctests" -gt 0 ]; then
+            cargo test --workspace --doc --locked ${{ matrix.features }}
+          else
+            echo "No library target in this package; skipping doctests."
+          fi
+
+  miri:
+    name: Miri (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    env:
+      # for every step: rust-cache's `rustc -vV` too, which would otherwise
+      # install the pinned MSRV toolchain only to name the cache
+      RUSTUP_TOOLCHAIN: nightly
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["--all-features"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install nightly + miri
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: nightly
+          components: miri
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: miri-${{ matrix.features }}
+
+      # `+nightly` outranks rust-toolchain.toml; MIRIFLAGS come from
+      # .cargo/config.toml's [env], which cargo hands to Miri's runner
+      - name: cargo miri setup
+        run: cargo +nightly miri setup
+
+      - name: cargo miri test
+        run: cargo +nightly miri test --workspace --locked --verbose ${{ matrix.features }}
+
+  clippy:
+    name: Clippy (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["--all-features"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install stable + clippy
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: clippy-${{ matrix.features }}
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked --verbose ${{ matrix.features }} -- -D warnings
+
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The version is read from Cargo.toml rather than pinned here, so
+      # `rust-version` stays the single source of truth. A pin in this
+      # file would drift the first time the MSRV is raised.
+      - name: Read MSRV from Cargo.toml
+        id: msrv
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^rust-version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)"
+          if [ -z "$version" ]; then
+            echo "::error file=Cargo.toml::no rust-version key found" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "MSRV is $version"
+
+      - name: Install MSRV toolchain
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: msrv-${{ steps.msrv.outputs.version }}
+
+      # rust-toolchain.toml must name the same version, so rustup's choice
+      # and the install above agree: a mismatch fails here
+      - name: Check + test on MSRV
+        env:
+          MSRV: ${{ steps.msrv.outputs.version }}
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+          if [ "$channel" != "$MSRV" ]; then
+            echo "::error file=rust-toolchain.toml::channel $channel is not the MSRV $MSRV" >&2
+            exit 1
+          fi
+          cargo check --workspace --all-targets --locked
+          cargo test --workspace --locked
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install stable + rustfmt
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+          components: rustfmt
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: docs
+
+      - name: cargo doc
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --workspace --no-deps --all-features --locked

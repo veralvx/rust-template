@@ -1,0 +1,8 @@
+# `just render-check`'s Python
+.venv/
+__pycache__/
+# `just generate`'s projects
+/target
+# Nix's build links, direnv's cache
+/result*
+/.direnv

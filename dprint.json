@@ -1,0 +1,21 @@
+// Markdown and TOML (`just dprint-check`, style-check-dprint.yml). template/ is the template's: a
+// generated project checks its own (the smoke test runs its dprint), and its Liquid is not
+// Markdown's. The settings and the plugins are the template's (`just dprint-update` moves both
+// files), so the files copied from it pass here alike.
+{
+  "markdown": {
+    "emphasisKind": "asterisks",
+    "strongKind": "asterisks"
+  },
+  "toml": {},
+  "excludes": [
+    // git-cliff's (cliff.toml): regenerated at each release, never edited
+    "CHANGELOG.md",
+    "template/",
+    "target/"
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/markdown-0.26.0.wasm",
+    "https://plugins.dprint.dev/toml-0.9.0.wasm"
+  ]
+}

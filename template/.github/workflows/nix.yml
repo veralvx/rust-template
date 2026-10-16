@@ -1,0 +1,74 @@
+name: Nix
+
+# The flake's formatter (`nix fmt`), then its checks (flake.nix): clippy,
+# rustfmt, rustdoc and the tests (and the image, with one), the format, the
+# shell and the workflows, built in the sandbox with the toolchain
+# rust-toolchain.toml pins, on x86_64 and aarch64 Linux -- the image's two
+# architectures, so neither is first built at a release; and every system's
+# outputs evaluated, nothing built, so a break on a system no runner here
+# builds (Apple silicon) still shows. Until flake.lock is committed, each
+# run locks the inputs afresh -- commit it after the first `nix develop`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      # in the flake's src, for a crate that `include_str!`s them
+      - "**/README.md"
+      - "**/LICENSE-*"
+      - ".cargo/config.toml"
+      - "clippy.toml"
+      - "rustfmt.toml"
+      - "rust-toolchain.toml"
+      - "flake.nix"
+      - "flake.lock"
+      # the format, shell and workflows checks' too
+      - "**/*.sh"
+      - ".githooks/**"
+      - "justfile"
+      - ".editorconfig"
+      - ".github/workflows/**"
+  # every pull request, whatever it touches: a path-filtered workflow never
+  # reports, and a required check that never reports blocks the merge
+  pull_request:
+  workflow_dispatch:
+
+# a pull request's newest run cancels its older ones; any other run, a group of its own: every
+# commit on main checked (in a shared group, a pending run gives way to the newest: the default)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  flake-check:
+    name: nix flake check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        # flakes on, and the job's token for GitHub fetches
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+
+      # the formatter's verdict (nixfmt, shfmt, just's own) as `nix fmt` gives it: --ci formats,
+      # and fails if that changed a file, as the flake's `format` check fails
+      - name: nix fmt (check)
+        run: nix fmt -- --ci
+
+      - name: nix flake check
+        run: nix flake check --print-build-logs
+
+      - name: Every system, evaluated
+        if: matrix.os == 'ubuntu-latest'
+        run: nix flake check --no-build --all-systems
