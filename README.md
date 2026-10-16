@@ -12,7 +12,7 @@ The configuration is adapted from [`veralvx/imi`](https://github.com/veralvx/imi
 ## Usage
 
 ```sh
-cargo install --locked cargo-generate   # >=0.25 (the template refuses older)
+cargo install --locked cargo-generate   # 0.25 or later (the template refuses older)
 cargo generate --git https://github.com/veralvx/rust-template template
 ```
 

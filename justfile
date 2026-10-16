@@ -60,6 +60,10 @@ smoke kind:
     project="$(just generate "$1")"
     cd "$project"
     just --fmt --check --unstable
+    # the template ships no lock: the first nix command writes it, to commit (the README)
+    nix flake lock
+    git add flake.lock
+    git -c user.name=generate -c user.email=generate@localhost commit --quiet -m "chore: the lock"
     nix develop --command just checks
     nix develop --command just fmt
     git diff --exit-code

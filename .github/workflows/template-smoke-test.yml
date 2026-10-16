@@ -302,7 +302,7 @@ jobs:
         working-directory: ${{ runner.temp }}/generated/demo
         run: |
           set -euo pipefail
-          sed -i 's/^    cargo publish --workspace$/    cargo publish --workspace --dry-run/' justfile
+          sed -i 's/^    cargo publish --workspace || {$/    cargo publish --workspace --dry-run || {/' justfile
           git commit --quiet -am "test: publish as a dry run"
           git init --quiet --bare "$RUNNER_TEMP/origin.git"
           git remote add origin "$RUNNER_TEMP/origin.git"
@@ -369,6 +369,8 @@ jobs:
       - name: just fmt changes nothing
         working-directory: ${{ runner.temp }}/generated/demo
         run: |
+          # the lock the first nix command wrote (the README: commit it), no format change
+          git add flake.lock
           nix develop --command just fmt
           git diff --exit-code
 
